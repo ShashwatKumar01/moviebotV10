@@ -5,7 +5,7 @@ import logging
 # from dotenv import load_dotenv
 
 # Load environment variables from .env file (if using a .env file)
-load_dotenv()
+# load_dotenv()
 
 logging.basicConfig(
     format='%(name)s - %(levelname)s - %(message)s',
