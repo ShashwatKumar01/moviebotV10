@@ -1,5 +1,5 @@
 # https://github.com/odysseusmax/animated-lamp/blob/master/bot/database/database.py
-import motor
+import motor.motor_asyncio
 import datetime
 from info import DATABASE_NAME, DATABASE_URI, IMDB, IMDB_TEMPLATE, MELCOW_NEW_USERS, P_TTI_SHOW_OFF, SINGLE_BUTTON, SPELL_CHECK_REPLY, PROTECT_CONTENT, MAX_BTN, URL_MODE, TUTORIAL, IS_TUTORIAL, URL_SHORTENR_WEBSITE, URL_SHORTNER_WEBSITE_API
 
