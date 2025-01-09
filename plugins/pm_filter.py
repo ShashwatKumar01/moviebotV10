@@ -1665,8 +1665,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
             InlineKeyboardButton('➕↖️ Add Me To Your Groups ↗️➕', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
         ],
             [
-                InlineKeyboardButton('Join Group', url='http://t.me/+rULXdrxw5Pk5NTFl'),
-                InlineKeyboardButton('⚠️Join Backup', url=f'http://t.me/{MOVIE_GROUP_USERNAME}')
+                InlineKeyboardButton('⚠️Join Group', url=f'http://t.me/{MOVIE_GROUP_USERNAME}')
             ],
             [
                 InlineKeyboardButton('🔔 Updates Channel 🤖', url='https://t.me/imoviesmagic')
