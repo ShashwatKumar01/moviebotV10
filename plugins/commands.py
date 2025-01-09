@@ -113,9 +113,6 @@ async def start(client, message):
                 InlineKeyboardButton('🔔 Updates Channel 🤖', url='https://t.me/imoviesmagic')
             ],
             [
-                InlineKeyboardButton('TeraBox 🎥', url='https://t.me/+D54Ckg-nsTIyN2I1')
-            ],
-            [
                 InlineKeyboardButton('🙆🏻 Help 🦾', callback_data='help'),
                 InlineKeyboardButton('♥️ About ♥️', callback_data='about')
             ]]
