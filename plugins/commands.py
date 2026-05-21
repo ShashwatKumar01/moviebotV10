@@ -33,7 +33,7 @@ async def start(client, message):
                 InlineKeyboardButton('⚠️Join Group', url=f'http://t.me/{MOVIE_GROUP_USERNAME}')
             ],
             [
-                InlineKeyboardButton('🔔 Updates Channel 🤖', url='https://t.me/imoviesmagic')
+                InlineKeyboardButton('🔔 Updates Channel 🤖', url='https://t.me/BotsXP')
             ],
             [
                 InlineKeyboardButton('🙆🏻 Help 🦾', callback_data='help'),
@@ -59,7 +59,7 @@ async def start(client, message):
                 InlineKeyboardButton('⚠️Join Backup', url=f'http://t.me/{MOVIE_GROUP_USERNAME}')
             ],
             [
-                InlineKeyboardButton('🔔 Updates Channel 🤖', url='https://t.me/imoviesmagic')
+                InlineKeyboardButton('🔔 Updates Channel 🤖', url='https://t.me/BOTSXP')
             ],
             [
                 InlineKeyboardButton('🙆🏻 Help 🦾', callback_data='help'),
@@ -110,7 +110,7 @@ async def start(client, message):
                 InlineKeyboardButton('⚠️Join Backup', url=f'http://t.me/{MOVIE_GROUP_USERNAME}')
             ],
             [
-                InlineKeyboardButton('🔔 Updates Channel 🤖', url='https://t.me/imoviesmagic')
+                InlineKeyboardButton('🔔 Updates Channel 🤖', url='https://t.me/BOTSXP')
             ],
             [
                 InlineKeyboardButton('🙆🏻 Help 🦾', callback_data='help'),
@@ -177,7 +177,7 @@ async def start(client, message):
                                 InlineKeyboardButton('▶ Gen Stream / Download Link', callback_data=f'generate_stream_link:{file_id}'),
                             ],
                             [
-                                InlineKeyboardButton('📌 ᴊᴏɪɴ ᴜᴘᴅᴀᴛᴇꜱ ᴄʜᴀɴɴᴇʟ 📌', url=f'https://t.me/imoviesmagic')
+                                InlineKeyboardButton('📌 ᴊᴏɪɴ ᴜᴘᴅᴀᴛᴇꜱ ᴄʜᴀɴɴᴇʟ 📌', url=f'https://t.me/BOTSXP')
                             ]
                         ]
                     )
