@@ -2401,6 +2401,17 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
 
 async def auto_filter(client, msg, spoll=False):
+    waiting_message = None
+
+    async def delete_waiting_message():
+        nonlocal waiting_message
+        if waiting_message:
+            try:
+                await waiting_message.delete()
+            except Exception:
+                pass
+            waiting_message = None
+
     if not spoll:
         message = msg
         settings = await get_settings(message.chat.id)
@@ -2424,8 +2435,11 @@ async def auto_filter(client, msg, spoll=False):
             search = re.sub(r"\s+", " ", search).strip()
             search = search.replace("-", " ")
             search = search.replace(":","")            
+            if message.chat.type == enums.ChatType.PRIVATE:
+                waiting_message = await message.reply_text("<b>Please wait 5 seconds, searching...</b>")
             files, offset, total_results = await get_search_results_badAss_LazyDeveloperr(message.chat.id ,search, offset=0, filter=True)
             if not files:
+                await delete_waiting_message()
                 # Generate the search URL
                 generated_link = f"https://google.com/search?q={quote(search)}"
                 await client.send_message(req_channel,f"-🦋 #REQUESTED_CONTENT 🦋-\n\n📝**Content Name** :`{search}`\n**Requested By**: {message.from_user.first_name}\n **USER ID**:{user_id}\n\n🗃️",
@@ -2698,6 +2712,7 @@ async def auto_filter(client, msg, spoll=False):
         try:
             z = await message.reply_photo(photo=imdb.get('poster'), caption=cap[:1024],
                                         reply_markup=InlineKeyboardMarkup(btn))
+            await delete_waiting_message()
             # thanksaa = await message.reply_text(f"♥ Heads up for **<a href='https://t.me/LazyDeveloperr'>𓆩• LazyDeveloper •𓆪</a>**...\n<code>🎉 we love you 🎊</code>")
             # await asyncio.sleep(5)
             # await thanksaa.delete()
@@ -2709,6 +2724,7 @@ async def auto_filter(client, msg, spoll=False):
             poster = pic.replace('.jpg', "._V1_UX360.jpg")
 
             m = await message.reply_photo(photo=poster, caption=cap[:1024], reply_markup=InlineKeyboardMarkup(btn))
+            await delete_waiting_message()
             # thanks = await message.reply_text(f"♥ Heads up for **<a href='https://t.me/LazyDeveloperr'>𓆩• LazyDeveloper •𓆪</a>**...\n<code>🎉 we love you 🎊</code>")
             # await asyncio.sleep(5)
             # await thanks.delete()
@@ -2719,6 +2735,7 @@ async def auto_filter(client, msg, spoll=False):
         except Exception as e:
             logger.exception(e)
             n = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+            await delete_waiting_message()
             # thanksz = await message.reply_text(f"♥ Heads up for **<a href='https://t.me/LazyDeveloperr'>𓆩• LazyDeveloper •𓆪</a>**...\n<code>🎉 we love you 🎊</code>")
             # await asyncio.sleep(5)
             # await thanksz.delete()
@@ -2727,6 +2744,7 @@ async def auto_filter(client, msg, spoll=False):
                 await n.delete()         
     else:
         p = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+        await delete_waiting_message()
         # thanksx = await message.reply_text(f"♥ Heads up for **<a href='https://t.me/LazyDeveloperr'>𓆩• LazyDeveloper •𓆪</a>**...\n<code>🎉 we love you 🎊</code>")
         # await asyncio.sleep(5)
         # await thanksx.delete()
