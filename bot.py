@@ -60,6 +60,15 @@ async def Lazy_start():
     temp.BANNED_CHATS = b_chats
     temp.LAZY_VERIFIED_CHATS = lz_verified
     await Media.ensure_indexes()
+
+    # One-time migration: fold any legacy CHANNELS env ids into the mongo
+    # registry, then load the live set from mongo. From here on, new
+    # channels are added at runtime via /addchannel - see channels_admin.py.
+    for legacy_id in CHANNELS:
+        if isinstance(legacy_id, int) and legacy_id and not await db.is_channel_registered(legacy_id):
+            await db.add_channel(legacy_id, title=None, added_by=None)
+    temp.CHANNELS = set(await db.get_all_channel_ids())
+    logging.info(f"Live-indexing {len(temp.CHANNELS)} library channel(s): {temp.CHANNELS}")
     me = await LazyPrincessBot.get_me()
     temp.ME = me.id
     temp.U_NAME = me.username

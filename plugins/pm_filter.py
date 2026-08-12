@@ -25,7 +25,7 @@ from info import *
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ForceReply, Message
 from pyrogram import Client, filters, enums
 from pyrogram.errors import FloodWait, UserIsBlocked, MessageNotModified, PeerIdInvalid
-from utils import get_size, is_subscribed, get_poster, search_gagala, temp, get_settings, save_group_settings
+from utils import get_size, is_subscribed, get_poster, search_gagala, temp, get_settings, save_group_settings, sanitize_caption
 from database.users_chats_db import db
 from database.ia_filterdb import Media, get_file_details, get_search_results,get_search_results_badAss_LazyDeveloperr
 from database.lazy_utils import progress_for_pyrogram, convert, humanbytes
@@ -1561,7 +1561,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         files = files_[0]
         title = files.file_name
         size = get_size(files.file_size)
-        f_caption = files.caption
+        f_caption = sanitize_caption(files.caption)
         settings = await get_settings(query.message.chat.id)
         if CUSTOM_FILE_CAPTION:
             try:
@@ -1635,7 +1635,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         files = files_[0]
         title = files.file_name
         size = get_size(files.file_size)
-        f_caption = files.caption
+        f_caption = sanitize_caption(files.caption)
         if CUSTOM_FILE_CAPTION:
             try:
                 f_caption = CUSTOM_FILE_CAPTION.format(file_name='' if title is None else title,
@@ -1782,7 +1782,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         files = files_[0]
         title = files.file_name
         size = get_size(files.file_size)
-        f_caption = files.caption
+        f_caption = sanitize_caption(files.caption)
         settings = await get_settings(query.message.chat.id)
         if CUSTOM_FILE_CAPTION:
             try:
@@ -2401,6 +2401,17 @@ async def cb_handler(client: Client, query: CallbackQuery):
 
 
 async def auto_filter(client, msg, spoll=False):
+    waiting_message = None
+
+    async def delete_waiting_message():
+        nonlocal waiting_message
+        if waiting_message:
+            try:
+                await waiting_message.delete()
+            except Exception:
+                pass
+            waiting_message = None
+
     if not spoll:
         message = msg
         settings = await get_settings(message.chat.id)
@@ -2424,8 +2435,11 @@ async def auto_filter(client, msg, spoll=False):
             search = re.sub(r"\s+", " ", search).strip()
             search = search.replace("-", " ")
             search = search.replace(":","")            
+            if message.chat.type == enums.ChatType.PRIVATE:
+                waiting_message = await message.reply_text("<b>Please wait 5 seconds, searching...</b>")
             files, offset, total_results = await get_search_results_badAss_LazyDeveloperr(message.chat.id ,search, offset=0, filter=True)
             if not files:
+                await delete_waiting_message()
                 # Generate the search URL
                 generated_link = f"https://google.com/search?q={quote(search)}"
                 await client.send_message(req_channel,f"-🦋 #REQUESTED_CONTENT 🦋-\n\n📝**Content Name** :`{search}`\n**Requested By**: {message.from_user.first_name}\n **USER ID**:{user_id}\n\n🗃️",
@@ -2656,7 +2670,23 @@ async def auto_filter(client, msg, spoll=False):
     # waiting_message = await message.reply_text(f"Setting up your request {full_name}...")
     # await asyncio.sleep(1)
     # await waiting_message.delete()
-    imdb = await get_poster(search, file=(files[0]).file_name) if settings["imdb"] else None
+    imdb_query = search
+    if settings["imdb"]:
+        try:
+            imdb_query = re.sub(
+                r"\b(144p|240p|360p|480p|720p|1080p|1440p|2160p|4k|8k|hdrip|webdl|web-dl|webrip|bluray|brrip|dvdrip|x264|x265|hevc|aac|ddp|esub|hindi|hin|english|eng|tamil|tam|telugu|tel|malayalam|mal|kannada|kan|korean|kor|urdu|urd|season\s*\d+|s\d{1,2}e\d{1,2})\b",
+                " ",
+                files[0].file_name,
+                flags=re.IGNORECASE,
+            )
+            imdb_query = re.sub(r"[\[\]\(\)\{\}\._\-]+", " ", imdb_query)
+            imdb_query = re.sub(r"\s+", " ", imdb_query).strip() or search
+            imdb = await get_poster(imdb_query, file=files[0].file_name)
+        except Exception as e:
+            logger.exception(f"IMDB lookup failed for {imdb_query}: {e}")
+            imdb = None
+    else:
+        imdb = None
     TEMPLATE = settings['template']
     # waiting overs here @LazyDeveloperr
 
@@ -2698,6 +2728,7 @@ async def auto_filter(client, msg, spoll=False):
         try:
             z = await message.reply_photo(photo=imdb.get('poster'), caption=cap[:1024],
                                         reply_markup=InlineKeyboardMarkup(btn))
+            await delete_waiting_message()
             # thanksaa = await message.reply_text(f"♥ Heads up for **<a href='https://t.me/LazyDeveloperr'>𓆩• LazyDeveloper •𓆪</a>**...\n<code>🎉 we love you 🎊</code>")
             # await asyncio.sleep(5)
             # await thanksaa.delete()
@@ -2709,6 +2740,7 @@ async def auto_filter(client, msg, spoll=False):
             poster = pic.replace('.jpg', "._V1_UX360.jpg")
 
             m = await message.reply_photo(photo=poster, caption=cap[:1024], reply_markup=InlineKeyboardMarkup(btn))
+            await delete_waiting_message()
             # thanks = await message.reply_text(f"♥ Heads up for **<a href='https://t.me/LazyDeveloperr'>𓆩• LazyDeveloper •𓆪</a>**...\n<code>🎉 we love you 🎊</code>")
             # await asyncio.sleep(5)
             # await thanks.delete()
@@ -2719,6 +2751,7 @@ async def auto_filter(client, msg, spoll=False):
         except Exception as e:
             logger.exception(e)
             n = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+            await delete_waiting_message()
             # thanksz = await message.reply_text(f"♥ Heads up for **<a href='https://t.me/LazyDeveloperr'>𓆩• LazyDeveloper •𓆪</a>**...\n<code>🎉 we love you 🎊</code>")
             # await asyncio.sleep(5)
             # await thanksz.delete()
@@ -2727,6 +2760,7 @@ async def auto_filter(client, msg, spoll=False):
                 await n.delete()         
     else:
         p = await message.reply_text(cap, reply_markup=InlineKeyboardMarkup(btn))
+        await delete_waiting_message()
         # thanksx = await message.reply_text(f"♥ Heads up for **<a href='https://t.me/LazyDeveloperr'>𓆩• LazyDeveloper •𓆪</a>**...\n<code>🎉 we love you 🎊</code>")
         # await asyncio.sleep(5)
         # await thanksx.delete()

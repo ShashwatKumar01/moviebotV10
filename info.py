@@ -2,10 +2,9 @@ import re
 from os import getenv, environ
 import logging
 # import os
-# from dotenv import load_dotenv
-
+from dotenv import load_dotenv
 # Load environment variables from .env file (if using a .env file)
-# load_dotenv()
+load_dotenv()
 
 logging.basicConfig(
     format='%(name)s - %(levelname)s - %(message)s',
@@ -75,6 +74,8 @@ SINGLE_BUTTON = is_enabled((environ.get('SINGLE_BUTTON', "False")), False)
 CUSTOM_FILE_CAPTION = environ.get("CUSTOM_FILE_CAPTION", "🎦 <b>File Name: </b> ➥ <i>{file_caption}</i>\n⚙️ <b>Size: </b><i>{file_size}</i>\n\n<b>Forward this File to other Chats and Download Full\n\nUSE VLC/MX Player to view thie File 🔥</b>")
 BATCH_FILE_CAPTION = environ.get("BATCH_FILE_CAPTION", CUSTOM_FILE_CAPTION)
 IMDB_TEMPLATE = environ.get("IMDB_TEMPLATE", "<b>Your Query: {query}</b>\n\n🏷 Title: <a href={url}>{title}</a>\n🎭 Genres: {genres}\n📆 Year: <a href={url}/releaseinfo>{year}</a>\n🌟 Rating: <a href={url}/ratings>{rating}</a> / 10 \n\n💛 Please Share Us 💛\n\n⚠️Click on the button 👇 below to get your query privately")
+TMDB_API_KEY = environ.get("TMDB_API_KEY", "")  # v3 API key from themoviedb.org, movie/TV metadata source
+POSTER_CACHE_SECONDS = int(environ.get("POSTER_CACHE_SECONDS", CACHE_TIME))
 LONG_IMDB_DESCRIPTION = is_enabled(environ.get("LONG_IMDB_DESCRIPTION", "False"), False)
 SPELL_CHECK_REPLY = is_enabled(environ.get("SPELL_CHECK_REPLY", "True"), False)
 MAX_LIST_ELM = environ.get("MAX_LIST_ELM", None)

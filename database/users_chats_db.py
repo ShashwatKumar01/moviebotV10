@@ -12,6 +12,7 @@ class Database:
         self.grp = self.db.groups
         self.users = self.db.uersz
         self.req = self.db.requests
+        self.channels = self.db.library_channels
 
     def new_user(self, id, name):
         return dict(    
@@ -250,6 +251,32 @@ class Database:
     async def get_caption(self, id):
         user = await self.col.find_one({'id': int(id)})
         return user.get('caption', None)
+
+    # Library channel registry - lets admins add/remove auto-index source
+    # channels at runtime, no restart / static CHANNELS env edit needed.
+    async def add_channel(self, chat_id, title=None, added_by=None):
+        await self.channels.update_one(
+            {'_id': int(chat_id)},
+            {'$set': {
+                'title': title,
+                'added_by': added_by,
+                'added_at': datetime.datetime.now(),
+            }},
+            upsert=True,
+        )
+
+    async def remove_channel(self, chat_id):
+        result = await self.channels.delete_one({'_id': int(chat_id)})
+        return result.deleted_count > 0
+
+    async def get_all_channel_ids(self):
+        return [doc['_id'] async for doc in self.channels.find({}, {'_id': 1})]
+
+    async def get_all_channels(self):
+        return [doc async for doc in self.channels.find({})]
+
+    async def is_channel_registered(self, chat_id):
+        return bool(await self.channels.find_one({'_id': int(chat_id)}))
 
 
 db = Database(DATABASE_URI, DATABASE_NAME)

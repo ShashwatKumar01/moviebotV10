@@ -9,7 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 from marshmallow.exceptions import ValidationError
 from info import DATABASE_URI, DATABASE_NAME, COLLECTION_NAME, USE_CAPTION_FILTER,MAX_B_TN
-from utils import get_settings, save_group_settings
+from utils import get_settings, save_group_settings, sanitize_caption
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -48,7 +48,7 @@ async def save_file(media):
             file_size=media.file_size,
             file_type=media.file_type,
             mime_type=media.mime_type,
-            caption=media.caption.html if media.caption else None,
+            caption=sanitize_caption(media.caption.html) if media.caption else None,
         )
     except ValidationError:
         logger.exception('Error occurred while saving file in database')

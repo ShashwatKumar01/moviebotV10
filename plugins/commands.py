@@ -327,12 +327,9 @@ async def start(client, message):
     elif data.startswith("files"):
         # print('file is asking again to bypass url shortner')
         user_id = message.from_user.id
-        if temp.SHORT.get(user_id)==None:
-            return await message.reply_text(text="<b>Please Search Again in Group</b>")
-        else:
-            chat_id = temp.SHORT.get(user_id)
-        settings = await get_settings(chat_id)
-        if not await db.has_prime_status(user_id) and settings['url_mode']:
+        chat_id = temp.SHORT.get(user_id)
+        settings = await get_settings(chat_id) if chat_id is not None else {}
+        if chat_id is not None and not await db.has_prime_status(user_id) and settings.get('url_mode'):
             files_ = await get_file_details(file_id)
             files = files_[0]
             generatedurl = await get_shortlink(chat_id, f"https://telegram.me/{temp.U_NAME}?start=file_{file_id}")

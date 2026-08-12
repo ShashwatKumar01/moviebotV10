@@ -8,8 +8,8 @@
 import logging
 from pyrogram.errors import InputUserDeactivated, UserNotParticipant, FloodWait, UserIsBlocked, PeerIdInvalid
 from info import *
-from imdb import IMDb
 import asyncio
+import time as _time
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram import enums
 from typing import Union
@@ -29,8 +29,6 @@ logger.setLevel(logging.INFO)
 BTN_URL_REGEX = re.compile(
     r"(\[([^\[]+?)\]\((buttonurl|buttonalert):(?:/{0,2})(.+?)(:same)?\))"
 )
-
-imdb = IMDb() 
 
 BANNED = {}
 SMART_OPEN = '“'
@@ -52,6 +50,7 @@ class temp(object):
     U_NAME = None
     B_NAME = None
     SETTINGS = {}
+    CHANNELS = set()  # live-updated library channel ids, no restart needed to add a new one
 
 async def is_subscribed(bot, query):
     if await db.find_join_req(query.from_user.id):
@@ -68,84 +67,225 @@ async def is_subscribed(bot, query):
 
     return False
 
-async def get_poster(query, bulk=False, id=False, file=None):
-    if not id:
-        # https://t.me/GetTGLink/4183
-        query = (query.strip()).lower()
-        title = query
-        year = re.findall(r'[1-2]\d{3}$', query, re.IGNORECASE)
-        if year:
-            year = list_to_str(year[:1])
-            title = (query.replace(year, "")).strip()
-        elif file is not None:
-            year = re.findall(r'[1-2]\d{3}', file, re.IGNORECASE)
-            if year:
-                year = list_to_str(year[:1]) 
-        else:
-            year = None
-        movieid = imdb.search_movie(title.lower(), results=10)
-        if not movieid:
-            return None
-        if year:
-            filtered=list(filter(lambda k: str(k.get('year')) == str(year), movieid))
-            if not filtered:
-                filtered = movieid
-        else:
-            filtered = movieid
-        movieid=list(filter(lambda k: k.get('kind') in ['movie', 'tv series'], filtered))
-        if not movieid:
-            movieid = filtered
-        if bulk:
-            return movieid
-        movieid = movieid[0].movieID
+_TMDB_BASE = "https://api.themoviedb.org/3"
+_TMDB_IMG = "https://image.tmdb.org/t/p/w780"
+_POSTER_CACHE: dict = {}  # key -> (expires_monotonic, value)
+
+
+class _TmdbCandidate:
+    """Lightweight stand-in for the old IMDbPY search-result object.
+
+    Supports both attribute access (`.movieID`, used in callback_data) and
+    dict-style `.get('title'|'year')`, matching call sites in misc.py / pm_filter.py.
+    """
+    __slots__ = ("movieID", "_title", "_year")
+
+    def __init__(self, movieID, title, year):
+        self.movieID = movieID
+        self._title = title
+        self._year = year
+
+    def get(self, key, default=None):
+        if key == "title":
+            return self._title
+        if key == "year":
+            return self._year
+        return default
+
+
+def _cache_get(key):
+    entry = _POSTER_CACHE.get(key)
+    if not entry:
+        return None
+    expires, value = entry
+    if _time.monotonic() > expires:
+        _POSTER_CACHE.pop(key, None)
+        return None
+    return value
+
+
+def _cache_set(key, value):
+    _POSTER_CACHE[key] = (_time.monotonic() + POSTER_CACHE_SECONDS, value)
+
+
+async def _tmdb_request(session, path, params):
+    params = dict(params)
+    params["api_key"] = TMDB_API_KEY
+    try:
+        async with session.get(f"{_TMDB_BASE}{path}", params=params) as resp:
+            if resp.status != 200:
+                return None
+            return await resp.json()
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        logger.warning(f"TMDB request failed for {path}: {e}")
+        return None
+
+
+async def _tmdb_search_multi(session, title, year=None):
+    data = await _tmdb_request(session, "/search/multi", {"query": title, "include_adult": "false"})
+    if not data:
+        return []
+    results = [r for r in (data.get("results") or []) if r.get("media_type") in ("movie", "tv")]
+    if year:
+        def _matches_year(r):
+            date = r.get("release_date") or r.get("first_air_date") or ""
+            return date.startswith(str(year))
+        filtered = [r for r in results if _matches_year(r)]
+        if filtered:
+            results = filtered
+    return results
+
+
+def _crew_by_job(credits, *jobs):
+    crew = (credits or {}).get("crew") or []
+    names = [c.get("name") for c in crew if c.get("job") in jobs and c.get("name")]
+    return list(dict.fromkeys(names))
+
+
+def _build_poster_result(media_type, data):
+    title = data.get("title") or data.get("name") or "N/A"
+    date = data.get("release_date") or data.get("first_air_date") or ""
+    year = date[:4] if date else (data.get("year") or "N/A")
+    credits = data.get("credits") or {}
+    cast = [c.get("name") for c in (credits.get("cast") or [])[:10] if c.get("name")]
+    director = _crew_by_job(credits, "Director")
+    writer = _crew_by_job(credits, "Writer", "Screenplay", "Story")
+    producer = _crew_by_job(credits, "Producer", "Executive Producer")
+    composer = _crew_by_job(credits, "Original Music Composer")
+    cinematographer = _crew_by_job(credits, "Director of Photography")
+    music_team = _crew_by_job(credits, "Music", "Music Editor", "Music Supervisor") or composer
+    companies = [c.get("name") for c in (data.get("production_companies") or []) if c.get("name")]
+    genres = [g.get("name") for g in (data.get("genres") or []) if g.get("name")]
+    countries = [c.get("name") for c in (data.get("production_countries") or []) if c.get("name")] \
+        or list(data.get("origin_country") or [])
+    languages = [l.get("english_name") or l.get("name") for l in (data.get("spoken_languages") or []) if l]
+    aka_data = data.get("alternative_titles") or {}
+    aka_list = aka_data.get("titles") or aka_data.get("results") or []
+    aka = [a.get("title") for a in aka_list if a.get("title")]
+    imdb_id = (data.get("external_ids") or {}).get("imdb_id") or data.get("imdb_id")
+
+    certificates = []
+    if media_type == "movie":
+        for rel in (data.get("release_dates") or {}).get("results") or []:
+            if rel.get("iso_3166_1") == "US":
+                for r in rel.get("release_dates") or []:
+                    if r.get("certification"):
+                        certificates.append(r["certification"])
     else:
-        movieid = query
-    movie = imdb.get_movie(movieid)
-    if movie.get("original air date"):
-        date = movie["original air date"]
-    elif movie.get("year"):
-        date = movie.get("year")
-    else:
-        date = "N/A"
-    plot = ""
-    if not LONG_IMDB_DESCRIPTION:
-        plot = movie.get('plot')
-        if plot and len(plot) > 0:
-            plot = plot[0]
-    else:
-        plot = movie.get('plot outline')
-    if plot and len(plot) > 800:
-        plot = plot[0:800] + "..."
+        for rating in (data.get("content_ratings") or {}).get("results") or []:
+            if rating.get("iso_3166_1") == "US" and rating.get("rating"):
+                certificates.append(rating["rating"])
+
+    box_office = f"${data['revenue']:,}" if media_type == "movie" and data.get("revenue") else None
+    runtime = data.get("runtime")
+    if not runtime:
+        runtimes = data.get("episode_run_time") or []
+        runtime = runtimes[0] if runtimes else None
+    poster_path = data.get("poster_path")
+    url = f"https://www.imdb.com/title/{imdb_id}" if imdb_id else f"https://www.themoviedb.org/{media_type}/{data.get('id')}"
 
     return {
-        'title': movie.get('title'),
-        'votes': movie.get('votes'),
-        "aka": list_to_str(movie.get("akas")),
-        "seasons": movie.get("number of seasons"),
-        "box_office": movie.get('box office'),
-        'localized_title': movie.get('localized title'),
-        'kind': movie.get("kind"),
-        "imdb_id": f"tt{movie.get('imdbID')}",
-        "cast": list_to_str(movie.get("cast")),
-        "runtime": list_to_str(movie.get("runtimes")),
-        "countries": list_to_str(movie.get("countries")),
-        "certificates": list_to_str(movie.get("certificates")),
-        "languages": list_to_str(movie.get("languages")),
-        "director": list_to_str(movie.get("director")),
-        "writer":list_to_str(movie.get("writer")),
-        "producer":list_to_str(movie.get("producer")),
-        "composer":list_to_str(movie.get("composer")) ,
-        "cinematographer":list_to_str(movie.get("cinematographer")),
-        "music_team": list_to_str(movie.get("music department")),
-        "distributors": list_to_str(movie.get("distributors")),
-        'release_date': date,
-        'year': movie.get('year'),
-        'genres': list_to_str(movie.get("genres")),
-        'poster': movie.get('full-size cover url'),
-        'plot': plot,
-        'rating': str(movie.get("rating")),
-        'url':f'https://www.imdb.com/title/tt{movieid}'
+        'title': title,
+        'votes': data.get('vote_count') or "N/A",
+        'aka': list_to_str(aka),
+        'seasons': data.get('number_of_seasons') or "N/A",
+        'box_office': box_office or "N/A",
+        'localized_title': data.get('original_title') or data.get('original_name') or title,
+        'kind': 'movie' if media_type == 'movie' else 'tv series',
+        'imdb_id': imdb_id or "N/A",
+        'cast': list_to_str(cast),
+        'runtime': f"{runtime} min" if runtime else "N/A",
+        'countries': list_to_str(countries),
+        'certificates': list_to_str(list(dict.fromkeys(certificates))),
+        'languages': list_to_str(languages),
+        'director': list_to_str(director),
+        'writer': list_to_str(writer),
+        'producer': list_to_str(producer),
+        'composer': list_to_str(composer),
+        'cinematographer': list_to_str(cinematographer),
+        'music_team': list_to_str(music_team),
+        'distributors': list_to_str(companies),
+        'release_date': date or "N/A",
+        'year': year,
+        'genres': list_to_str(genres),
+        'poster': f"{_TMDB_IMG}{poster_path}" if poster_path else None,
+        'plot': ((data.get('overview') or "")[:800] or "N/A"),
+        'rating': str(data.get('vote_average') or "N/A"),
+        'url': url,
+        'movieID': f"{media_type}:{data.get('id')}",
     }
+
+
+async def _tmdb_details(session, media_type, media_id):
+    append = "credits,external_ids,alternative_titles"
+    if media_type == "tv":
+        append += ",content_ratings"
+    else:
+        append += ",release_dates"
+    data = await _tmdb_request(session, f"/{media_type}/{media_id}", {"append_to_response": append})
+    if not data:
+        return None
+    return _build_poster_result(media_type, data)
+
+
+async def get_poster(query, bulk=False, id=False, file=None):
+    """Movie/TV metadata lookup backed by TMDB. Same signature and return
+    dict contract as the old IMDbPY-based version, so callers need no changes."""
+    if not TMDB_API_KEY:
+        return None
+
+    if id:
+        media_type, sep, media_id = str(query).partition(":")
+        if not sep:
+            media_type, media_id = "movie", query
+        cache_key = f"id:{media_type}:{media_id}"
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+        async with aiohttp.ClientSession() as session:
+            result = await _tmdb_details(session, media_type, media_id)
+        _cache_set(cache_key, result)
+        return result
+
+    query = (query.strip()).lower()
+    title = query
+    year = re.findall(r'[1-2]\d{3}$', query, re.IGNORECASE)
+    if year:
+        year = list_to_str(year[:1])
+        title = (query.replace(year, "")).strip()
+    elif file is not None:
+        year_in_file = re.findall(r'[1-2]\d{3}', file, re.IGNORECASE)
+        year = list_to_str(year_in_file[:1]) if year_in_file else None
+    else:
+        year = None
+
+    cache_key = f"search:{title}:{year}:{bulk}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    async with aiohttp.ClientSession() as session:
+        results = await _tmdb_search_multi(session, title, year)
+        if not results:
+            _cache_set(cache_key, None)
+            return None
+
+        if bulk:
+            candidates = [
+                _TmdbCandidate(
+                    f"{r.get('media_type')}:{r.get('id')}",
+                    r.get('title') or r.get('name') or "N/A",
+                    (r.get('release_date') or r.get('first_air_date') or "")[:4] or "N/A",
+                )
+                for r in results[:10]
+            ]
+            _cache_set(cache_key, candidates)
+            return candidates
+
+        best = results[0]
+        result = await _tmdb_details(session, best.get('media_type'), best.get('id'))
+        _cache_set(cache_key, result)
+        return result
 
 async def broadcast_messages(user_id, message):
     try:
@@ -168,7 +308,7 @@ async def broadcast_messages(user_id, message):
     except Exception as e:
         return False, "Error"
 
-async def search_gagala(text):
+def _search_gagala_sync(text):
     usr_agent = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
         'Chrome/109.0.5414.120 Safari/537.36'
@@ -180,6 +320,30 @@ async def search_gagala(text):
     soup = BeautifulSoup(response.text, 'html.parser')
     titles = soup.find_all( 'h3' )
     return [title.getText() for title in titles]
+
+
+async def search_gagala(text):
+    # blocking requests call kept off the event loop, so one slow google
+    # scrape can't stall every other user's search
+    return await asyncio.to_thread(_search_gagala_sync, text)
+
+
+USERNAME_PATTERN = re.compile(r"@[A-Za-z0-9_]{5,32}")
+_PROMO_LINE_PATTERN = re.compile(r"^[^\n]*(sent via|joined via)[^\n]*\n?", re.IGNORECASE | re.MULTILINE)
+_BLANK_LINES_PATTERN = re.compile(r"\n{3,}")
+
+
+def sanitize_caption(caption):
+    """Replace any @username mention in a caption (from source channels)
+    with our own handle, and drop common promo-bot lines."""
+    if not caption:
+        return caption
+    cleaned = _PROMO_LINE_PATTERN.sub("", caption)
+    cleaned = _BLANK_LINES_PATTERN.sub("\n\n", cleaned).strip()
+    replacement = f"@{MAIN_CHANNEL_USRNM}"
+    if USERNAME_PATTERN.search(cleaned):
+        return USERNAME_PATTERN.sub(replacement, cleaned)
+    return cleaned
 
 async def get_settings(group_id):
     settings = temp.SETTINGS.get(group_id)
