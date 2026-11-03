@@ -151,3 +151,4 @@ def load_primary_config(file_bot_username: str | None = None) -> Config | None:
         auto_delete_seconds=auto_delete_seconds,
         daily_check_hour=daily_check_hour,
     )
+

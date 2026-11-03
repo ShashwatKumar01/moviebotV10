@@ -292,6 +292,41 @@ class TestAutoFilterCore(unittest.TestCase):
         self.assertEqual(cache.get("foo"), "bar")
         self.assertIsNone(cache.get("nonexistent"))
 
+    def test_stream_player_template_branding_removed(self):
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        req_path = os.path.join(root_dir, "template", "req.html")
+        with open(req_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Branding removed
+        self.assertNotIn("LazyDeveloper", content)
+        self.assertNotIn("LazyPrincess", content)
+        self.assertNotIn("Logo-Lazydeveloperr", content)
+
+        # Essential player features present
+        self.assertIn("iMovies", content)
+        self.assertIn("vlc://", content)
+        self.assertIn("com.mxtech.videoplayer", content)
+        self.assertIn("copyStreamLink", content)
+        self.assertIn("Keyboard Shortcuts", content)
+        self.assertIn("Plyr", content)
+
+    def test_dl_template_branding_removed(self):
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        dl_path = os.path.join(root_dir, "template", "dl.html")
+        with open(dl_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Branding removed
+        self.assertNotIn("LazyDeveloper", content)
+        self.assertNotIn("LazyPrincess", content)
+        self.assertNotIn("Logo-Lazydeveloperr", content)
+
+        # Essential download features present
+        self.assertIn("iMovies", content)
+        self.assertIn("copyDownloadUrl", content)
+        self.assertIn("Download File", content)
+
 
 if __name__ == "__main__":
     unittest.main()

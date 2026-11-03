@@ -183,3 +183,4 @@ class Database:
         except Exception as exc:
             logger.warning("Error fetching library channel IDs: %s", exc)
             return set()
+

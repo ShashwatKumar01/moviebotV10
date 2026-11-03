@@ -52,3 +52,4 @@ class TTLCache:
 # Global cache instances
 SEARCH_CACHE = TTLCache(default_ttl_seconds=300, max_size=3000)
 TMDB_CACHE = TTLCache(default_ttl_seconds=1800, max_size=1000)
+

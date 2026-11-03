@@ -73,3 +73,4 @@ async def stop_primary_bot(app: Client | None, scheduler_task: asyncio.Task | No
     if app and app.is_connected:
         await app.stop()
         logger.info("Primary AutoFilter Bot stopped.")
+

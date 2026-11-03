@@ -112,3 +112,4 @@ def parse_release(name: str | None) -> ParsedRelease:
         quality=quality,
         audio=audio_str,
     )
+
