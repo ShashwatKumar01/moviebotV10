@@ -38,6 +38,8 @@ from lazybot import LazyPrincessBot
 
 from util.keepalive import ping_server
 from lazybot.clients import initialize_clients
+from autofilter_bot.config import load_primary_config
+from autofilter_bot.runner import start_primary_bot, stop_primary_bot
 
 
 PORT = "8080"
@@ -80,7 +82,19 @@ async def Lazy_start():
     await web.TCPSite(app, bind_address, PORT).start()
     logging.info(f"{me.first_name} with for Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
     logging.info(LOG_STR)
-    await idle()
+    primary_app = None
+    primary_scheduler = None
+    try:
+        primary_config = load_primary_config(file_bot_username=me.username)
+        if primary_config:
+            primary_app, primary_scheduler, _ = await start_primary_bot(primary_config, file_bot_username=me.username)
+    except Exception as exc:
+        logging.error("Failed to start Primary AutoFilter Bot: %s", exc, exc_info=True)
+
+    try:
+        await idle()
+    finally:
+        await stop_primary_bot(primary_app, primary_scheduler)
 
 if __name__ == '__main__':
     try:
