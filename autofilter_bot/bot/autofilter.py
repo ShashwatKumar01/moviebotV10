@@ -29,6 +29,8 @@ from .keyboards import (
     build_title_selection_keyboard,
     build_autofilter_keyboard,
 )
+from .channel_poster import post_to_updates_channel, post_to_public_channel
+from .force_sub import is_user_authorized, send_force_sub_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +80,12 @@ async def process_search_query(
         return
 
     is_group = message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+
+    # Force Sub Verification (for PM queries and /start getfile- links)
+    if not is_group and user:
+        if not await is_user_authorized(client, user.id, config, db):
+            await send_force_sub_prompt(client, message, config, db, retry_payload=raw_query)
+            return
 
     # Immediate feedback message while query is processed
     wait_msg: Message | None = None
@@ -316,7 +324,8 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
                 )
             selected["meta"] = meta
 
-        caption = format_autofilter_caption(meta, file_count=len(files))
+        is_admin = bool(user and user.id in config.admin_ids)
+        caption = format_autofilter_caption(meta, file_count=len(files), is_admin=is_admin)
         keyboard = build_autofilter_keyboard(
             files=files,
             file_bot_username=config.file_bot_username,
@@ -325,6 +334,7 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
             query_key=query_key,
             title_page=data.get("title_page", 1),
             trailer_url=meta.trailer_url,
+            is_admin=is_admin,
         )
 
         photo = meta.poster_url or config.default_thumbnail_path
@@ -426,6 +436,7 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
         files = selected["files"]
         meta: MediaMeta | None = selected.get("meta")
 
+        is_admin = bool(user and user.id in config.admin_ids)
         keyboard = build_autofilter_keyboard(
             files=files,
             file_bot_username=config.file_bot_username,
@@ -434,6 +445,7 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
             query_key=query_key,
             title_page=data.get("title_page", 1),
             trailer_url=meta.trailer_url if meta else None,
+            is_admin=is_admin,
         )
 
         try:
@@ -441,3 +453,58 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
             await query.answer()
         except RPCError:
             pass
+
+    # -------------------------------------------------------------
+    # Step 2 Admin Actions: Post to Updates / Public Channels
+    # -------------------------------------------------------------
+    @app.on_callback_query(filters.regex(r"^af_post_up:"))
+    async def cb_af_post_updates(client: Client, query: CallbackQuery) -> None:
+        user = query.from_user
+        if not user or user.id not in config.admin_ids:
+            return await query.answer("⚠️ Admin only feature!", show_alert=True)
+
+        query_key = query.data.split(":")[1]
+        data = AUTOFILTER_RESULTS.get(query_key)
+        if not data:
+            return await query.answer("⚠️ Session expired, please search again.", show_alert=True)
+
+        active_idx = data.get("active_idx")
+        if active_idx is None or active_idx >= len(data["grouped"]):
+            return await query.answer("⚠️ Invalid title selection.", show_alert=True)
+
+        selected = data["grouped"][active_idx]
+        meta = selected.get("meta")
+        if not meta:
+            return await query.answer("⚠️ No metadata found.", show_alert=True)
+
+        ok = await post_to_updates_channel(client, config, meta)
+        if ok:
+            await query.answer("🚀 Successfully posted to Updates Channel!", show_alert=True)
+        else:
+            await query.answer("❌ Failed to post. Check channel ID & bot admin permissions.", show_alert=True)
+
+    @app.on_callback_query(filters.regex(r"^af_post_pub:"))
+    async def cb_af_post_public(client: Client, query: CallbackQuery) -> None:
+        user = query.from_user
+        if not user or user.id not in config.admin_ids:
+            return await query.answer("⚠️ Admin only feature!", show_alert=True)
+
+        query_key = query.data.split(":")[1]
+        data = AUTOFILTER_RESULTS.get(query_key)
+        if not data:
+            return await query.answer("⚠️ Session expired, please search again.", show_alert=True)
+
+        active_idx = data.get("active_idx")
+        if active_idx is None or active_idx >= len(data["grouped"]):
+            return await query.answer("⚠️ Invalid title selection.", show_alert=True)
+
+        selected = data["grouped"][active_idx]
+        meta = selected.get("meta")
+        if not meta:
+            return await query.answer("⚠️ No metadata found.", show_alert=True)
+
+        ok = await post_to_public_channel(client, config, meta)
+        if ok:
+            await query.answer("📢 Successfully posted to Public Channel!", show_alert=True)
+        else:
+            await query.answer("❌ Failed to post. Check channel ID & bot admin permissions.", show_alert=True)

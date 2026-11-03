@@ -40,8 +40,24 @@ auth_users = [int(user) if id_pattern.search(user) else user for user in environ
 AUTH_USERS = (auth_users + ADMINS) if auth_users else []
 auth_channel = environ.get('AUTH_CHANNEL')
 auth_grp = environ.get('AUTH_GROUP')
-AUTH_CHANNEL = int(auth_channel) if auth_channel and id_pattern.search(auth_channel) else None
+
+# Multiple Auth Channels support (Private & Public channels)
+raw_auth_channels = environ.get('AUTH_CHANNELS') or environ.get('AUTH_CHANNEL') or environ.get('FORCE_SUB_CHANNELS') or ''
+AUTH_CHANNELS = []
+for _part in raw_auth_channels.replace('\n', ',').split(','):
+    _part = _part.strip()
+    if not _part:
+        continue
+    try:
+        AUTH_CHANNELS.append(int(_part))
+    except ValueError:
+        AUTH_CHANNELS.append(_part)
+
+AUTH_CHANNEL = AUTH_CHANNELS[0] if AUTH_CHANNELS and isinstance(AUTH_CHANNELS[0], int) else (int(auth_channel) if auth_channel and id_pattern.search(auth_channel) else None)
 AUTH_GROUPS = [int(ch) for ch in auth_grp.split()] if auth_grp else None
+
+raw_auth_invites = environ.get('AUTH_CHANNEL_INVITE_URLS') or environ.get('FORCE_SUB_INVITE_URLS') or environ.get('FORCE_SUB_INVITE_URL') or environ.get('AUTH_CHANNEL_INVITE_URL') or ''
+AUTH_CHANNEL_INVITE_URLS = [_u.strip() for _u in raw_auth_invites.replace('\n', ',').split(',') if _u.strip()]
 
 # MongoDB information *
 DATABASE_URI = environ.get('DATABASE_URI', "")

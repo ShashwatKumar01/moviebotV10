@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 from pyrogram import Client, filters
+from pyrogram.enums import ChatType
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..config import Config
 from ..core.database import Database
 from .scheduler import send_daily_library_digest, send_daily_tmdb_releases
+from .force_sub import is_user_authorized, send_force_sub_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,12 @@ def register_admin_commands(app: Client, config: Config, db: Database) -> None:
             if query:
                 from .autofilter import process_search_query
                 await process_search_query(client, message, query, config, db)
+                return
+
+        # Force Sub Check for plain /start in PM
+        if message.chat.type == ChatType.PRIVATE and user:
+            if not await is_user_authorized(client, user.id, config, db):
+                await send_force_sub_prompt(client, message, config, db, retry_payload="home")
                 return
 
         text = (

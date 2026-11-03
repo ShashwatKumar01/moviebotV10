@@ -291,8 +291,10 @@ def format_screenshot_2_caption(meta: MediaMeta) -> str:
 format_media_caption = format_screenshot_2_caption
 
 
-def format_autofilter_caption(meta: MediaMeta, file_count: int = 1) -> str:
-    """Rich card sent in Group/PM when user searches a movie/series."""
+def format_autofilter_caption(meta: MediaMeta, file_count: int = 1, is_admin: bool = False) -> str:
+    """Rich card sent in Group/PM when user searches a movie/series.
+    Includes Release Date above Duration, and for Admins includes Plot and Cast details.
+    """
     title_str = meta.title.strip()
     year_str = f"({meta.year})" if meta.year else ""
     rating_str = f"🌟 Rating: {meta.rating:.1f}/10" if meta.rating else ""
@@ -304,8 +306,26 @@ def format_autofilter_caption(meta: MediaMeta, file_count: int = 1) -> str:
     if rating_str:
         lines.append(rating_str)
     lines.append(f"🎭 **Genres:** {genres_str}")
+
+    # Release date above duration
+    rel_date = format_release_date(meta.release_date)
+    if rel_date:
+        lines.append(f"📅 **Release Date:** {rel_date}")
+
     if meta.duration:
         lines.append(f"⏳ **Duration:** {meta.duration}")
+
+    # Extended details for Admin requests
+    if is_admin:
+        if meta.overview:
+            plot_text = meta.overview.strip()
+            if len(plot_text) > 300:
+                plot_text = plot_text[:300].rstrip() + "…"
+            lines.append(f"\n📖 **Plot:** {plot_text}")
+        if meta.cast:
+            lines.append(f"👥 **Cast:** {', '.join(meta.cast[:5])}")
+        if meta.languages:
+            lines.append(f"🎧 **Languages:** {', '.join(meta.languages)}")
 
     lines.append(f"\n📂 **Available Files:** {file_count} file(s) found in library.")
     lines.append("\n👇 **Select your preferred quality below to get file:**")
@@ -480,8 +500,8 @@ async def fetch_media_meta(api_key: str, title: str, year: str | None = None, is
                 cand_orig = cand.get("original_title") or cand.get("original_name") or ""
                 sim = max(_title_similarity(clean_title, cand_title), _title_similarity(clean_title, cand_orig))
 
-                # Discard candidates with very low similarity (< 0.40) to prevent completely wrong cards
-                if sim < 0.40:
+                # Discard candidates with low similarity (< 0.50) to prevent completely wrong cards
+                if sim < 0.50:
                     continue
 
                 score = sim * 100.0

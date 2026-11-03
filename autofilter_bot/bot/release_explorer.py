@@ -31,6 +31,7 @@ from .keyboards import (
     release_preview_keyboard,
 )
 from .channel_poster import post_to_updates_channel, post_to_public_channel
+from .force_sub import is_user_authorized, send_force_sub_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,10 @@ def register_release_explorer(app: Client, config: Config, db: Database) -> None
         user = message.from_user
         if user:
             await db.save_user(user.id, user.username, user.first_name)
+        if message.chat.type == ChatType.PRIVATE and user:
+            if not await is_user_authorized(client, user.id, config, db):
+                await send_force_sub_prompt(client, message, config, db, retry_payload="new")
+                return
 
         if not config.tmdb_api_key:
             return await message.reply_text("❌ TMDB_API_KEY is not configured in .env.")
@@ -199,6 +204,10 @@ def register_release_explorer(app: Client, config: Config, db: Database) -> None
         user = message.from_user
         if user:
             await db.save_user(user.id, user.username, user.first_name)
+        if message.chat.type == ChatType.PRIVATE and user:
+            if not await is_user_authorized(client, user.id, config, db):
+                await send_force_sub_prompt(client, message, config, db, retry_payload="today")
+                return
 
         country = config.tmdb_region or "all"
         lang = config.tmdb_orig_lang or "all"

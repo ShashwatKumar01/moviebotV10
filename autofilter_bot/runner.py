@@ -13,6 +13,7 @@ from .bot.admin_commands import register_admin_commands
 from .bot.channel_watcher import register_channel_watcher
 from .bot.release_explorer import register_release_explorer
 from .bot.broadcast import register_broadcast
+from .bot.force_sub import register_force_sub_handlers
 from .bot.autofilter import register_autofilter
 from .bot.scheduler import daily_scheduler_loop
 
@@ -51,6 +52,7 @@ async def start_primary_bot(
     register_channel_watcher(app, config, db)
     register_release_explorer(app, config, db)
     register_broadcast(app, config, db)
+    register_force_sub_handlers(app, config, db)
     register_autofilter(app, config, db)
 
     # 5. Start bot client

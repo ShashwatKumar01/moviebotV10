@@ -24,10 +24,38 @@ class MockMarkup:
 mock_types.InlineKeyboardButton = MockButton
 mock_types.InlineKeyboardMarkup = MockMarkup
 
+class MockRPCError(Exception):
+    pass
+
+class MockUserNotParticipant(MockRPCError):
+    pass
+
+class MockChatAdminRequired(MockRPCError):
+    pass
+
+mock_errors = MagicMock()
+mock_errors.RPCError = MockRPCError
+mock_errors.UserNotParticipant = MockUserNotParticipant
+mock_errors.ChatAdminRequired = MockChatAdminRequired
+
 sys.modules["pyrogram"] = mock_pyrogram
 sys.modules["pyrogram.types"] = mock_types
-sys.modules["pyrogram.errors"] = MagicMock()
+sys.modules["pyrogram.errors"] = mock_errors
 sys.modules["pyrogram.filters"] = MagicMock()
+
+mock_enums = MagicMock()
+mock_enums.ChatMemberStatus = MagicMock()
+mock_enums.ChatMemberStatus.LEFT = "left"
+mock_enums.ChatMemberStatus.BANNED = "banned"
+mock_enums.ChatType = MagicMock()
+mock_enums.ChatType.PRIVATE = "private"
+mock_enums.ChatType.GROUP = "group"
+mock_enums.ChatType.SUPERGROUP = "supergroup"
+sys.modules["pyrogram.enums"] = mock_enums
+
+# Mock motor to prevent DNS resolution in sandbox
+sys.modules["motor"] = MagicMock()
+sys.modules["motor.motor_asyncio"] = MagicMock()
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -202,17 +230,48 @@ class TestAutoFilterCore(unittest.TestCase):
         self.assertIn("Cast: Prayrak Mehta, Saqib Ayub", caption)
         self.assertIn("ℹ️ Info via TMDB • No copyright infringement intended.", caption)
 
-    def test_autofilter_keyboard_deep_link(self):
-        files = [
-            {"_id": "file_123", "file_name": "Deadpool.2024.720p.mkv", "file_size": 1200000000},
-            {"_id": "file_456", "file_name": "Deadpool.2024.1080p.mkv", "file_size": 2500000000},
-        ]
-        kb = build_autofilter_keyboard(files, file_bot_username="iMoviesMagicBot")
-        
-        first_btn = kb.inline_keyboard[0][0]
-        self.assertIn("iMoviesMagicBot", first_btn.url)
-        self.assertEqual(first_btn.url, "https://t.me/iMoviesMagicBot?start=file_file_123")
-        self.assertIn("720P", first_btn.text)
+    def test_autofilter_caption_with_release_date_and_admin(self):
+        meta = MediaMeta(
+            title="Resident Evil",
+            year="2026",
+            overview="Deadly viral outbreak in Raccoon City...",
+            poster_url=None,
+            rating=7.3,
+            genres=["Horror", "Science Fiction", "Adventure"],
+            duration="1h 35mins",
+            release_date="2026-10-21",
+            cast=["Milla Jovovich", "Michelle Rodriguez"],
+            languages=["English", "Hindi"],
+        )
+
+        # 1. Regular user caption
+        user_caption = format_autofilter_caption(meta, file_count=9, is_admin=False)
+        self.assertIn("🎬 **Resident Evil (2026)**", user_caption)
+        self.assertIn("🌟 Rating: 7.3/10", user_caption)
+        self.assertIn("🎭 **Genres:** Horror, Science Fiction, Adventure", user_caption)
+        self.assertIn("📅 **Release Date:** 21 October 2026", user_caption)
+        self.assertIn("⏳ **Duration:** 1h 35mins", user_caption)
+        self.assertIn("📂 **Available Files:** 9 file(s) found in library.", user_caption)
+        self.assertNotIn("📖 **Plot:**", user_caption)
+        self.assertNotIn("👥 **Cast:**", user_caption)
+
+        # 2. Admin caption: includes Plot, Cast, Languages
+        admin_caption = format_autofilter_caption(meta, file_count=9, is_admin=True)
+        self.assertIn("📅 **Release Date:** 21 October 2026", admin_caption)
+        self.assertIn("📖 **Plot:** Deadly viral outbreak in Raccoon City...", admin_caption)
+        self.assertIn("👥 **Cast:** Milla Jovovich, Michelle Rodriguez", admin_caption)
+
+        # 3. Admin keyboard has posting buttons
+        files = [{"_id": "f1", "file_name": "Resident.Evil.1080p.mkv", "file_size": 1000000}]
+        user_kb = build_autofilter_keyboard(files, "iMoviesMagicBot", query_key="q1", is_admin=False)
+        user_btn_texts = [b.text for r in user_kb.inline_keyboard for b in r]
+        self.assertNotIn("🚀 Post to Updates Channel", user_btn_texts)
+        self.assertNotIn("📢 Post to Public Channel", user_btn_texts)
+
+        admin_kb = build_autofilter_keyboard(files, "iMoviesMagicBot", query_key="q1", is_admin=True)
+        admin_btn_texts = [b.text for r in admin_kb.inline_keyboard for b in r]
+        self.assertIn("🚀 Post to Updates Channel", admin_btn_texts)
+        self.assertIn("📢 Post to Public Channel", admin_btn_texts)
 
     def test_ordered_phrase_regex_search(self):
         query = "Love always"
@@ -272,19 +331,32 @@ class TestAutoFilterCore(unittest.TestCase):
         # Row 3 is trailer
         self.assertEqual(kb1.inline_keyboard[2][0].text, "▶️ Watch Trailer")
 
-        # Test Screenshot 2 Keyboard delegates to exact same 4-button layout
+        # Test Screenshot 2 Keyboard for Public Channel:
+        # ONLY:
+        # Row 1: [🔔 Join Updates Channel] -> https://t.me/+cQxPLyBRxm0wNzM9
+        # Row 2: [▶️ Watch Trailer] (if trailer available)
         kb2 = build_screenshot_2_keyboard(
             bot_username="iMoviesAutoFilterBot",
             query="Kappi Squad",
-            updates_channel_link="https://t.me/imoviesmagic",
+            updates_channel_link="https://t.me/+cQxPLyBRxm0wNzM9",
             group_1_url="https://t.me/moviegroup",
             season_number=1,
+            trailer_url="https://youtube.com/watch?v=kappi",
+        )
+        self.assertEqual(len(kb2.inline_keyboard), 2)
+        self.assertEqual(kb2.inline_keyboard[0][0].text, "🔔 Join Updates Channel")
+        self.assertEqual(kb2.inline_keyboard[0][0].url, "https://t.me/+cQxPLyBRxm0wNzM9")
+        self.assertEqual(kb2.inline_keyboard[1][0].text, "▶️ Watch Trailer")
+
+        # Public Channel with no trailer has only 1 button
+        kb2_notrailer = build_screenshot_2_keyboard(
+            bot_username="iMoviesAutoFilterBot",
+            query="Kappi Squad",
+            updates_channel_link="https://t.me/+cQxPLyBRxm0wNzM9",
             trailer_url="",
         )
-        self.assertEqual(kb2.inline_keyboard[0][0].url, "https://t.me/iMoviesAutoFilterBot?start=getfile-Kappi-Squad-S01")
-        self.assertEqual(len(kb2.inline_keyboard[1]), 2)
-        self.assertEqual(kb2.inline_keyboard[1][0].text, "📢 Join Channel")
-        self.assertEqual(kb2.inline_keyboard[1][1].text, "👥 Join Group")
+        self.assertEqual(len(kb2_notrailer.inline_keyboard), 1)
+        self.assertEqual(kb2_notrailer.inline_keyboard[0][0].text, "🔔 Join Updates Channel")
 
     def test_ttl_cache(self):
         cache = TTLCache(default_ttl_seconds=10)
@@ -326,6 +398,67 @@ class TestAutoFilterCore(unittest.TestCase):
         self.assertIn("iMovies", content)
         self.assertIn("copyDownloadUrl", content)
         self.assertIn("Download File", content)
+
+    def test_force_sub_and_join_requests(self):
+        from autofilter_bot.bot.force_sub import (
+            get_force_sub_targets,
+            record_join_request,
+            _join_requests,
+            _force_sub_chat_ref_for,
+            _force_sub_join_url_for,
+        )
+        from autofilter_bot.config import Config
+
+        cfg = Config(
+            api_id=123,
+            api_hash="hash",
+            bot_token="token",
+            file_bot_username="bot",
+            database_uri="uri",
+            database_name="db",
+            collection_name="col",
+            admin_ids=frozenset([849188964]),
+            log_channel=-100,
+            update_channel=-1002025864946,
+            public_channel=-1004277825107,
+            library_channels=frozenset([-100]),
+            tmdb_api_key="key",
+            updates_channel_link="link",
+            updates_channel_invite_link="https://t.me/+cQxPLyBRxm0wNzM9",
+            movie_group_1_url="grp",
+            movie_group_2_url="",
+            auth_channels=(-1002025864946, "@imoviesmagic"),
+            auth_channel_invite_urls=("https://t.me/+cQxPLyBRxm0wNzM9", ""),
+        )
+
+        targets = get_force_sub_targets(cfg)
+        self.assertEqual(len(targets), 2)
+        self.assertEqual(targets[0]["ref"], -1002025864946)
+        self.assertEqual(targets[0]["url"], "https://t.me/+cQxPLyBRxm0wNzM9")
+        self.assertEqual(targets[1]["ref"], "@imoviesmagic")
+
+        # Test URL and ref parsing helpers
+        self.assertEqual(_force_sub_chat_ref_for("-1002025864946"), -1002025864946)
+        self.assertEqual(_force_sub_chat_ref_for("@imoviesmagic"), "@imoviesmagic")
+        self.assertEqual(_force_sub_chat_ref_for("https://t.me/imoviesmagic"), "@imoviesmagic")
+        self.assertIsNone(_force_sub_chat_ref_for("https://t.me/+cQxPLyBRxm0wNzM9"))
+        self.assertEqual(_force_sub_join_url_for("@imoviesmagic"), "https://t.me/imoviesmagic")
+
+        # Test join request recording in fast cache
+        record_join_request(user_id=999, chat_id=-1002025864946)
+        self.assertIn(-1002025864946, _join_requests.get(999, {}))
+        self.assertNotIn(-999999999999, _join_requests.get(999, {}))
+
+    def test_secondary_bot_auth_targets(self):
+        from utils import get_auth_targets, record_secondary_join_req, has_secondary_join_req
+
+        targets = get_auth_targets()
+        self.assertIsInstance(targets, list)
+
+        # Test join request memory cache for secondary bot
+        record_secondary_join_req(777, -1002025864946)
+        self.assertTrue(has_secondary_join_req(777, -1002025864946))
+        self.assertFalse(has_secondary_join_req(777, -999999999999))
 
 
 if __name__ == "__main__":

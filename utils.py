@@ -52,20 +52,149 @@ class temp(object):
     SETTINGS = {}
     CHANNELS = set()  # live-updated library channel ids, no restart needed to add a new one
 
-async def is_subscribed(bot, query):
-    if await db.find_join_req(query.from_user.id):
+# In-memory fast cache for secondary bot join requests: user_id -> set of chat_ids
+_SECONDARY_JOIN_REQUESTS: dict = {}
+
+def record_secondary_join_req(user_id: int, chat_id: int) -> None:
+    _SECONDARY_JOIN_REQUESTS.setdefault(int(user_id), set()).add(int(chat_id))
+
+def has_secondary_join_req(user_id: int, chat_id: int) -> bool:
+    return int(chat_id) in _SECONDARY_JOIN_REQUESTS.get(int(user_id), set())
+
+def get_auth_targets():
+    from info import AUTH_CHANNELS, AUTH_CHANNEL_INVITE_URLS
+    targets = []
+    invites = list(AUTH_CHANNEL_INVITE_URLS)
+    for idx, raw in enumerate(AUTH_CHANNELS):
+        raw_str = str(raw).strip()
+        invite = invites[idx] if idx < len(invites) else ""
+        ref = None
+        if raw_str.startswith("-100") and raw_str[1:].isdigit():
+            ref = int(raw_str)
+        elif raw_str.startswith("@"):
+            ref = raw_str
+        elif raw_str.startswith(("http://", "https://")):
+            from urllib.parse import urlparse
+            p = urlparse(raw_str).path.strip("/")
+            if p and not p.startswith("+"):
+                ref = f"@{p.split('/')[0]}"
+        elif raw_str.isdigit():
+            ref = int(raw_str)
+        elif raw_str:
+            ref = f"@{raw_str}"
+
+        url = invite
+        if not url:
+            if raw_str.startswith(("http://", "https://")):
+                url = raw_str
+            elif raw_str.startswith("@"):
+                url = f"https://t.me/{raw_str.lstrip('@')}"
+
+        targets.append({
+            "index": idx,
+            "raw": raw_str,
+            "ref": ref,
+            "url": url,
+        })
+    return targets
+
+async def is_subscribed_to_channel(bot, user_id, target):
+    # uses local has_secondary_join_req
+    ref = target.get("ref")
+    if ref is None:
         return True
+
+    # 1. Direct membership check via Pyrogram
     try:
-        user = await bot.get_chat_member(AUTH_CHANNEL, query.from_user.id)
+        user = await bot.get_chat_member(ref, user_id)
+        if user.status not in (enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED):
+            return True
+        if user.status == enums.ChatMemberStatus.BANNED:
+            return False
     except UserNotParticipant:
         pass
-    except Exception as e:
-        logger.exception(e)
+    except Exception:
+        pass
+
+    # 2. Check if join request exists (immediate authorization upon request)
+    chat_id = None
+    if isinstance(ref, int):
+        chat_id = ref
     else:
-        if user.status != enums.ChatMemberStatus.BANNED:
+        try:
+            chat = await bot.get_chat(ref)
+            chat_id = int(chat.id)
+        except Exception:
+            pass
+
+    if chat_id:
+        if has_secondary_join_req(user_id, chat_id):
+            return True
+        if await db.find_join_req(user_id, chat_id):
             return True
 
+    # Legacy fallback: any join request recorded for user
+    if await db.find_join_req(user_id):
+        return True
+
     return False
+
+async def get_missing_auth_channels(bot, user_id):
+    from info import ADMINS
+    if user_id in ADMINS:
+        return []
+    targets = get_auth_targets()
+    if not targets:
+        return []
+    missing = []
+    for t in targets:
+        ok = await is_subscribed_to_channel(bot, user_id, t)
+        if not ok:
+            missing.append(t)
+    return missing
+
+async def is_subscribed(bot, query):
+    user_id = getattr(getattr(query, "from_user", None), "id", None)
+    if not user_id:
+        return False
+    missing = await get_missing_auth_channels(bot, user_id)
+    return len(missing) == 0
+
+async def build_auth_channels_markup(bot, missing_targets, retry_payload=None):
+    from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    from plugins.commands import temp
+    buttons = []
+    for t in missing_targets:
+        url = t.get("url")
+        if not url and t.get("ref"):
+            try:
+                chat = await bot.get_chat(t["ref"])
+                url = chat.invite_link or (f"https://t.me/{chat.username}" if chat.username else "")
+                if not url:
+                    url = await bot.export_chat_invite_link(t["ref"])
+            except Exception:
+                url = ""
+        if not url:
+            continue
+        title = "Updates Channel"
+        try:
+            if t.get("ref"):
+                chat = await bot.get_chat(t["ref"])
+                title = chat.title or title
+        except Exception:
+            pass
+        buttons.append([InlineKeyboardButton(f"🤖 Join {title}", url=url)])
+
+    if retry_payload:
+        if retry_payload != "subscribe":
+            try:
+                kk, file_id = retry_payload.split("_", 1)
+                pre = 'checksubp' if kk == 'filep' else 'checksub' 
+                buttons.append([InlineKeyboardButton(" 🔄 Try Again", callback_data=f"{pre}#{file_id}")])
+            except (IndexError, ValueError):
+                bot_user = getattr(temp, "U_NAME", None) or "iMoviesMagic_Bot"
+                buttons.append([InlineKeyboardButton(" 🔄 Try Again", url=f"https://t.me/{bot_user}?start={retry_payload}")])
+    return InlineKeyboardMarkup(buttons)
 
 _TMDB_BASE = "https://api.themoviedb.org/3"
 _TMDB_IMG = "https://image.tmdb.org/t/p/w780"

@@ -73,33 +73,20 @@ async def start(client, message):
             parse_mode=enums.ParseMode.HTML
         )
         return
-    if AUTH_CHANNEL and not await is_subscribed(client, message):
-        try:
-            invite_link = await client.create_chat_invite_link(int(AUTH_CHANNEL), creates_join_request=True)
-        except ChatAdminRequired:
-            logger.error("Hey Sona, Ek dfa check kr lo ki main Channel mei Add hu ya nhi...!")
-            return
-        btn = [
-            [
-                InlineKeyboardButton(
-                    "🤖 Join Updates Channel", url=invite_link.invite_link
-                )
-            ]
-        ]
-
-        if message.command[1] != "subscribe":
-            try:
-                kk, file_id = message.command[1].split("_", 1)
-                pre = 'checksubp' if kk == 'filep' else 'checksub' 
-                btn.append([InlineKeyboardButton(" 🔄 Try Again", callback_data=f"{pre}#{file_id}")])
-            except (IndexError, ValueError):
-                btn.append([InlineKeyboardButton(" 🔄 Try Again", url=f"https://t.me/{temp.U_NAME}?start={message.command[1]}")])
+    if (AUTH_CHANNELS or AUTH_CHANNEL) and not await is_subscribed(client, message):
+        from utils import get_missing_auth_channels, build_auth_channels_markup
+        missing = await get_missing_auth_channels(client, message.from_user.id)
+        reply_markup = await build_auth_channels_markup(
+            client,
+            missing,
+            retry_payload=message.command[1] if len(message.command) > 1 else "subscribe"
+        )
         await client.send_message(
             chat_id=message.from_user.id,
-            text="**Please Join My Updates Channel to use this Bot!**",
-            reply_markup=InlineKeyboardMarkup(btn),
+            text="**Please Join Our Official Updates Channel(s) to use this Bot!**\n\n*If you sent a join request, click 🔄 Try Again to get your file.*",
+            reply_markup=reply_markup,
             parse_mode=enums.ParseMode.MARKDOWN
-            )
+        )
         return
     if len(message.command) == 2 and message.command[1] in ["subscribe", "error", "okay", "help"]:
         buttons = [[

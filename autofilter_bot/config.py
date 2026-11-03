@@ -64,6 +64,7 @@ class Config:
     library_channels: frozenset[int | str]
     tmdb_api_key: str
     updates_channel_link: str
+    updates_channel_invite_link: str
     movie_group_1_url: str
     movie_group_2_url: str
     port: int = 8080
@@ -72,6 +73,8 @@ class Config:
     daily_check_hour: int = 9
     tmdb_region: str = "IN"
     tmdb_orig_lang: str = "all"
+    auth_channels: tuple[int | str, ...] = ()
+    auth_channel_invite_urls: tuple[str, ...] = ()
 
 
 def load_primary_config(file_bot_username: str | None = None) -> Config | None:
@@ -108,8 +111,8 @@ def load_primary_config(file_bot_username: str | None = None) -> Config | None:
     admin_ids = _parse_id_set(admin_raw)
 
     log_channel = _parse_channel_id(os.getenv("LOG_CHANNEL"))
-    update_channel = _parse_channel_id(os.getenv("UPDATE_CHANNEL", "-1004277825107"))
-    public_channel = _parse_channel_id(os.getenv("PUBLIC_CHANNEL", "-1002025864946"))
+    update_channel = _parse_channel_id(os.getenv("UPDATE_CHANNEL", "-1002025864946"))
+    public_channel = _parse_channel_id(os.getenv("PUBLIC_CHANNEL", "-1004277825107"))
 
     lib_raw = os.getenv("LIBRARY_CHANNELS") or os.getenv("CHANNELS", "-1002414281459")
     library_channels = frozenset(
@@ -123,12 +126,29 @@ def load_primary_config(file_bot_username: str | None = None) -> Config | None:
     clean_file_bot = (file_bot_username or os.getenv("FILE_BOT_USERNAME", "iMoviesMagic_Bot")).strip().lstrip("@")
 
     updates_channel_link = os.getenv("UPDATES_CHANNEL_LINK", "https://t.me/imoviesmagic").strip()
+    updates_channel_invite = os.getenv("UPDATES_CHANNEL_INVITE_LINK", "https://t.me/+cQxPLyBRxm0wNzM9").strip()
     movie_group_1 = os.getenv("MOVIE_GROUP_1_URL", "https://t.me/+t6AsfQHAiqM2NDM1").strip()
     movie_group_2 = os.getenv("MOVIE_GROUP_2_URL", "").strip()
 
     port = _optional_int("PORT", 8080)
     auto_delete_seconds = _optional_int("AUTO_DELETE_SECONDS", 1800)
     daily_check_hour = _optional_int("DAILY_CHECK_HOUR", 9)
+
+    raw_auth_channels = os.getenv("AUTH_CHANNELS") or os.getenv("AUTH_CHANNEL") or os.getenv("FORCE_SUB_CHANNELS") or ""
+    auth_channels_list: list[int | str] = []
+    for item in raw_auth_channels.replace("\n", ",").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            auth_channels_list.append(int(item))
+        except ValueError:
+            auth_channels_list.append(item)
+
+    raw_auth_invites = os.getenv("AUTH_CHANNEL_INVITE_URLS") or os.getenv("FORCE_SUB_INVITE_URLS") or os.getenv("FORCE_SUB_INVITE_URL") or os.getenv("AUTH_CHANNEL_INVITE_URL") or ""
+    auth_invites_list = [
+        u.strip() for u in raw_auth_invites.replace("\n", ",").split(",") if u.strip()
+    ]
 
     return Config(
         api_id=api_id,
@@ -145,10 +165,13 @@ def load_primary_config(file_bot_username: str | None = None) -> Config | None:
         library_channels=library_channels,
         tmdb_api_key=tmdb_api_key,
         updates_channel_link=updates_channel_link,
+        updates_channel_invite_link=updates_channel_invite,
         movie_group_1_url=movie_group_1,
         movie_group_2_url=movie_group_2,
         port=port,
         auto_delete_seconds=auto_delete_seconds,
         daily_check_hour=daily_check_hour,
+        auth_channels=tuple(auth_channels_list),
+        auth_channel_invite_urls=tuple(auth_invites_list),
     )
 

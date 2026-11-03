@@ -43,11 +43,27 @@ class Database:
             ),
         )
     
-    async def find_join_req(self, id):
-        return bool(await self.req.find_one({'id': id}))
+    async def find_join_req(self, id, chat_id=None):
+        if chat_id:
+            return bool(await self.req.find_one({
+                "$or": [
+                    {"id": int(id), "chat_id": int(chat_id)},
+                    {"user_id": int(id), "chat_id": int(chat_id)},
+                    {"id": int(id)},
+                ]
+            }))
+        return bool(await self.req.find_one({
+            "$or": [{"id": int(id)}, {"user_id": int(id)}]
+        }))
         
-    async def add_join_req(self, id):
-        await self.req.insert_one({'id': id})
+    async def add_join_req(self, id, chat_id=None):
+        doc = {"id": int(id), "user_id": int(id)}
+        if chat_id:
+            doc["chat_id"] = int(chat_id)
+        filt = {"id": int(id)}
+        if chat_id:
+            filt["chat_id"] = int(chat_id)
+        await self.req.update_one(filt, {"$set": doc}, upsert=True)
     
     async def del_join_req(self):
         await self.req.drop()

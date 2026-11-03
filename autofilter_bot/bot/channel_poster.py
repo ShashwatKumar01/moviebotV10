@@ -69,7 +69,7 @@ async def post_to_public_channel(client: Client, config: Config, meta: MediaMeta
     keyboard = build_screenshot_2_keyboard(
         bot_username=bot_username,
         query=meta.title,
-        updates_channel_link=config.updates_channel_link,
+        updates_channel_link=getattr(config, "updates_channel_invite_link", None) or "https://t.me/+cQxPLyBRxm0wNzM9",
         group_1_url=config.movie_group_1_url,
         group_2_url=config.movie_group_2_url,
         season_number=meta.season_number,

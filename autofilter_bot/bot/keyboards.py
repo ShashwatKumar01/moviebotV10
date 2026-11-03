@@ -118,6 +118,7 @@ def build_autofilter_keyboard(
     query_key: str = "",
     title_page: int = 1,
     trailer_url: str | None = None,
+    is_admin: bool = False,
 ) -> InlineKeyboardMarkup:
     """Step 2: Quality / File buttons with deep links to secondary file delivery bot."""
     total_files = len(files)
@@ -169,6 +170,13 @@ def build_autofilter_keyboard(
         action_row.append(InlineKeyboardButton("▶️ Watch Trailer", url=trailer_url))
     action_row.append(InlineKeyboardButton("🔙 Back to Titles", callback_data=f"back_t:{query_key}:{title_page}"))
     buttons.append(action_row)
+
+    # Admin channel posting row (Only visible when requested by Admin)
+    if is_admin and query_key:
+        buttons.append([
+            InlineKeyboardButton("🚀 Post to Updates Channel", callback_data=f"af_post_up:{query_key}"),
+            InlineKeyboardButton("📢 Post to Public Channel", callback_data=f"af_post_pub:{query_key}"),
+        ])
 
     return InlineKeyboardMarkup(buttons)
 
@@ -435,19 +443,21 @@ def build_screenshot_2_keyboard(
     trailer_url: str | None = None,
 ) -> InlineKeyboardMarkup:
     """Exact keyboard for Public Channel:
-    Row 1: [📩 Click to get Files 📩] -> deep link to Primary Bot
-    Row 2: [📢 Join Channel] [👥 Join Group]
-    Row 3: [▶️ Watch Trailer]
+    ONLY:
+    Row 1: [🔔 Join Updates Channel] -> https://t.me/+cQxPLyBRxm0wNzM9
+    Row 2: [▶️ Watch Trailer] (if trailer available)
+    NO file links and NO movie group in public channel!
     """
-    return build_screenshot_1_keyboard(
-        bot_username=bot_username,
-        query=query,
-        updates_channel_link=updates_channel_link,
-        group_1_url=group_1_url,
-        group_2_url=group_2_url,
-        season_number=season_number,
-        trailer_url=trailer_url,
-    )
+    rows: list[list[InlineKeyboardButton]] = []
+
+    channel_invite = updates_channel_link or "https://t.me/+cQxPLyBRxm0wNzM9"
+    if is_valid_url(channel_invite):
+        rows.append([InlineKeyboardButton("🔔 Join Updates Channel", url=channel_invite.strip())])
+
+    if is_valid_url(trailer_url):
+        rows.append([InlineKeyboardButton("▶️ Watch Trailer", url=trailer_url.strip())])
+
+    return InlineKeyboardMarkup(rows)
 
 
 # ==========================================

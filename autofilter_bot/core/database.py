@@ -53,14 +53,46 @@ class Database:
     def users(self) -> AsyncIOMotorCollection:
         return self.db["bot_users"]
 
+    @property
+    def join_reqs(self) -> AsyncIOMotorCollection:
+        return self.db["join_requests"]
+
     async def ensure_indexes(self) -> None:
         """Create helpful compound and background indexes on collection."""
         try:
             await self.files.create_index([("file_name", 1)], background=True)
             await self.users.create_index([("_id", 1)], background=True)
+            await self.join_reqs.create_index([("user_id", 1), ("chat_id", 1)], background=True)
             logger.info("MongoDB indexes verified.")
         except Exception as exc:
             logger.warning("Could not ensure indexes: %s", exc)
+
+    async def save_join_request(self, user_id: int, chat_id: int) -> None:
+        """Persist a live chat join request so user stays authorized across restarts."""
+        try:
+            await self.join_reqs.update_one(
+                {"user_id": int(user_id), "chat_id": int(chat_id)},
+                {
+                    "$set": {"requested_at": datetime.now(timezone.utc)},
+                    "$setOnInsert": {"user_id": int(user_id), "chat_id": int(chat_id)},
+                },
+                upsert=True,
+            )
+        except Exception as exc:
+            logger.warning("Error saving join request for user %s: %s", user_id, exc)
+
+    async def has_join_request(self, user_id: int, chat_id: int) -> bool:
+        """Check if user has an active/pending join request for this chat."""
+        try:
+            doc = await self.join_reqs.find_one({
+                "$or": [
+                    {"user_id": int(user_id), "chat_id": int(chat_id)},
+                    {"id": int(user_id)},
+                ]
+            })
+            return bool(doc)
+        except Exception:
+            return False
 
     async def save_user(self, user_id: int, username: str | None = None, first_name: str = "") -> None:
         """Upsert a bot user into bot_users collection for broadcasting."""
