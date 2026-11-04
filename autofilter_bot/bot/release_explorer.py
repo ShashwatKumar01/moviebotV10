@@ -12,6 +12,7 @@ import os
 from typing import Any
 from pyrogram import Client, filters
 from pyrogram.types import Message, CallbackQuery
+from pyrogram.enums import ChatType
 from pyrogram.errors import RPCError
 
 from ..config import Config

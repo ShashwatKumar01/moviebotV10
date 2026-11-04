@@ -75,13 +75,13 @@ def register_channel_watcher(app: Client, config: Config, db: Database) -> None:
             logger.info("TMDB ID %d already alerted recently.", meta.id)
             return
 
-        # Check if released within last 30 days
-        if not is_released_within_days(meta, days=30):
-            logger.info("Title %r (released %s) is not within 30 days.", meta.title, meta.release_date)
+        # Check if released within last 60 days
+        if not is_released_within_days(meta, days=60):
+            logger.info("Title %r (released %s) is not within 60 days.", meta.title, meta.release_date)
             return
 
         ALERTED_TMDB_IDS.add(meta.id)
-        logger.info("🔥 New 30-day release detected: %s (%s)! Sending admin alerts...", meta.title, meta.release_date)
+        logger.info("🔥 New 60-day release detected: %s (%s)! Sending admin alerts...", meta.title, meta.release_date)
 
         # Prepare alert card
         rel_date_str = meta.release_date or "Unknown"
