@@ -111,8 +111,8 @@ def load_primary_config(file_bot_username: str | None = None) -> Config | None:
     admin_ids = _parse_id_set(admin_raw)
 
     log_channel = _parse_channel_id(os.getenv("LOG_CHANNEL"))
-    update_channel = _parse_channel_id(os.getenv("UPDATE_CHANNEL", "-1002025864946"))
-    public_channel = _parse_channel_id(os.getenv("PUBLIC_CHANNEL", "-1004277825107"))
+    update_channel = _parse_channel_id(os.getenv("UPDATE_CHANNEL", "-1004277825107"))
+    public_channel = _parse_channel_id(os.getenv("PUBLIC_CHANNEL", "-1002025864946"))
 
     lib_raw = os.getenv("LIBRARY_CHANNELS") or os.getenv("CHANNELS", "-1002414281459")
     library_channels = frozenset(

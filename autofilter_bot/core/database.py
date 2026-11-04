@@ -186,6 +186,7 @@ class Database:
         """Fetch all files added during today (UTC) for the Day-End Summary."""
         now = datetime.now(timezone.utc)
         start_of_day = datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=timezone.utc)
+        start_ts = int(start_of_day.timestamp())
 
         # Check by date field if present, or fallback to latest documents
         try:
@@ -194,13 +195,11 @@ class Database:
                     {"date": {"$gte": start_of_day}},
                     {"created_at": {"$gte": start_of_day}},
                     {"indexed_at": {"$gte": start_of_day}},
+                    {"date": {"$gte": start_ts}},
+                    {"timestamp": {"$gte": start_ts}},
                 ]
             }).limit(200)
             docs = await cursor.to_list(length=200)
-            if not docs:
-                # Fallback: get top 50 recent files if no date field is saved by legacy code
-                cursor = self.files.find({}).sort("_id", -1).limit(50)
-                docs = await cursor.to_list(length=50)
             return docs
         except Exception as exc:
             logger.warning("Error fetching today files: %s", exc)

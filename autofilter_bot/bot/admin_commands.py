@@ -97,7 +97,10 @@ def register_admin_commands(app: Client, config: Config, db: Database) -> None:
 
         status = await message.reply_text("⏳ Generating today's library digest...")
         count = await send_daily_library_digest(client, config, db)
-        await status.edit_text(f"✅ Library digest sent to Admin & Log Channel! (Found {count} files today).")
+        if count == 0:
+            await status.edit_text("ℹ️ No new files were added to the library today.")
+        else:
+            await status.edit_text(f"✅ Library digest sent to Admin & Log Channel! (Found {count} files today).")
 
     @app.on_message(filters.command(["check_releases"]) & filters.private)
     async def manual_check_releases_cmd(client: Client, message: Message) -> None:

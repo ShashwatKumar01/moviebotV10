@@ -1,3 +1,4 @@
+import datetime
 import logging
 from struct import pack
 import re
@@ -28,6 +29,7 @@ class Media(Document):
     file_type = fields.StrField(allow_none=True)
     mime_type = fields.StrField(allow_none=True)
     caption = fields.StrField(allow_none=True)
+    date = fields.DateTimeField(allow_none=True)
 
     class Meta:
         indexes = ('$file_name', )
@@ -40,6 +42,9 @@ async def save_file(media):
     # TODO: Find better way to get same file_id for same media to avoid duplicates
     file_id, file_ref = unpack_new_file_id(media.file_id)
     file_name = re.sub(r"(_|\-|\.|\+)", " ", str(media.file_name))
+    file_date = getattr(media, "date", None)
+    if not isinstance(file_date, datetime.datetime):
+        file_date = datetime.datetime.now(datetime.timezone.utc)
     try:
         file = Media(
             file_id=file_id,
@@ -49,6 +54,7 @@ async def save_file(media):
             file_type=media.file_type,
             mime_type=media.mime_type,
             caption=sanitize_caption(media.caption.html) if media.caption else None,
+            date=file_date,
         )
     except ValidationError:
         logger.exception('Error occurred while saving file in database')
