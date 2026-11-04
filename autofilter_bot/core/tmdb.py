@@ -584,12 +584,10 @@ async def fetch_recent_releases(
                     "primary_release_date.lte": end_date,
                     "sort_by": "popularity.desc",
                     "include_adult": "false",
-                    "with_release_type": "4|3|2|1",  # 4=Digital/OTT, 3=Theatrical
                     "page": 1,
                 }
                 if country_code:
                     movie_params["with_origin_country"] = country_code
-                    movie_params["region"] = country_code
                 if lang_code:
                     movie_params["with_original_language"] = lang_code
 
@@ -608,8 +606,6 @@ async def fetch_recent_releases(
                     "sort_by": "popularity.desc",
                     "include_adult": "false",
                     "without_genres": "10766,10767,10763,10764",
-                    "watch_region": country_code or "IN",
-                    "with_watch_monetization_types": "flatrate|free|ads",
                     "page": 1,
                 }
                 if country_code:
@@ -622,6 +618,41 @@ async def fetch_recent_releases(
                         t_data = await resp.json()
                         for item in t_data.get("results", []):
                             raw_items.append(("tv", item))
+            # Fallback to broader search if specific country returned empty
+            if not raw_items and country_code:
+                if media_filter in ("all", "movie"):
+                    fb_m = {
+                        "api_key": api_key,
+                        "primary_release_date.gte": start_date,
+                        "primary_release_date.lte": end_date,
+                        "sort_by": "popularity.desc",
+                        "include_adult": "false",
+                        "page": 1,
+                    }
+                    if lang_code:
+                        fb_m["with_original_language"] = lang_code
+                    async with session.get(f"{_BASE_URL}/discover/movie", params=fb_m) as resp:
+                        if resp.status == 200:
+                            m_data = await resp.json()
+                            for item in m_data.get("results", []):
+                                raw_items.append(("movie", item))
+                if media_filter in ("all", "tv"):
+                    fb_t = {
+                        "api_key": api_key,
+                        "first_air_date.gte": start_date,
+                        "first_air_date.lte": end_date,
+                        "sort_by": "popularity.desc",
+                        "include_adult": "false",
+                        "without_genres": "10766,10767,10763,10764",
+                        "page": 1,
+                    }
+                    if lang_code:
+                        fb_t["with_original_language"] = lang_code
+                    async with session.get(f"{_BASE_URL}/discover/tv", params=fb_t) as resp:
+                        if resp.status == 200:
+                            t_data = await resp.json()
+                            for item in t_data.get("results", []):
+                                raw_items.append(("tv", item))
     except Exception as exc:
         logger.warning("Error fetching recent releases from TMDB: %s", exc)
 
@@ -692,11 +723,9 @@ async def fetch_daily_releases(
                 "primary_release_date.lte": target_date,
                 "sort_by": "popularity.desc",
                 "include_adult": "false",
-                "with_release_type": "4|3|2|1",
             }
             if country_code:
                 movie_params["with_origin_country"] = country_code
-                movie_params["region"] = country_code
             if lang_code:
                 movie_params["with_original_language"] = lang_code
 
@@ -714,8 +743,6 @@ async def fetch_daily_releases(
                 "sort_by": "popularity.desc",
                 "include_adult": "false",
                 "without_genres": "10766,10767,10763,10764",
-                "watch_region": country_code or "IN",
-                "with_watch_monetization_types": "flatrate|free|ads",
             }
             if country_code:
                 tv_params["with_origin_country"] = country_code

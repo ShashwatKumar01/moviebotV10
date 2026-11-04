@@ -161,7 +161,8 @@ def register_release_explorer(app: Client, config: Config, db: Database) -> None
             lang=lang,
         )
 
-        RECENT_RELEASES_CACHE[message.from_user.id] = {
+        user_id = message.from_user.id if message.from_user else message.chat.id
+        RECENT_RELEASES_CACHE[user_id] = {
             "releases": releases,
             "days": days,
             "media_filter": media_filter,
@@ -173,15 +174,29 @@ def register_release_explorer(app: Client, config: Config, db: Database) -> None
         total_pages = max(1, (len(releases) + _PAGE_SIZE - 1) // _PAGE_SIZE)
         page_items = releases[:_PAGE_SIZE]
 
-        text = _format_new_list_text(
-            days=days,
-            total_count=len(releases),
-            page=1,
-            total_pages=total_pages,
-            media_filter=media_filter,
-            country_filter=country,
-            lang_filter=lang,
-        )
+        if not releases:
+            country_label = {"all": "Global", "in": "India", "us": "USA", "kr": "Korea"}.get(country, "Global")
+            text = (
+                f"🎬 **Releases of Last {days} Days**
+"
+                f"🔍 Filter: **{country_label}**
+
+"
+                f"ℹ️ No new releases found in TMDB for this filter in the last {days} days.
+
+"
+                f"👇 Tap **• All •** or **🌍 Global** below to browse hot releases:"
+            )
+        else:
+            text = _format_new_list_text(
+                days=days,
+                total_count=len(releases),
+                page=1,
+                total_pages=total_pages,
+                media_filter=media_filter,
+                country_filter=country,
+                lang_filter=lang,
+            )
         keyboard = new_releases_keyboard(
             page_items,
             page=1,
@@ -224,7 +239,8 @@ def register_release_explorer(app: Client, config: Config, db: Database) -> None
 
         releases = await fetch_daily_releases(config.tmdb_api_key, country=country, lang=lang)
 
-        RECENT_RELEASES_CACHE[message.from_user.id] = {
+        user_id = message.from_user.id if message.from_user else message.chat.id
+        RECENT_RELEASES_CACHE[user_id] = {
             "releases": releases,
             "days": 1,
             "media_filter": "all",

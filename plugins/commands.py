@@ -980,3 +980,15 @@ async def removetutorial(bot, message):
     reply = await message.reply_text("<b>ᴘʟᴇᴀꜱᴇ ᴡᴀɪᴛ...</b>")
     await save_group_settings(grpid, 'is_tutorial', False)
     await reply.edit_text(f"<b>Tutorial link removed ✔</b>")
+
+
+@Client.on_message(filters.command(["new", "releases", "today", "daily"]) & filters.incoming)
+async def new_releases_secondary(bot, message):
+    primary_username = os.getenv("PRIMARY_BOT_USERNAME", "iMoviesAutoFilterBot").strip().lstrip("@")
+    btn = [[InlineKeyboardButton("🎬 Browse Releases on Primary Bot", url=f"https://t.me/{primary_username}?start=new")]]
+    await message.reply_text(
+        "⚡️ **Browse Hot OTT & Theatrical Releases:**\n\n"
+        "New release cards, TMDB posters & trailer exploration are powered by our **Primary AutoFilter Bot**!\n\n"
+        "👇 Click below to open releases with filters & trailer previews:",
+        reply_markup=InlineKeyboardMarkup(btn),
+    )
