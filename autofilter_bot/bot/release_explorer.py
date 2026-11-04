@@ -177,14 +177,9 @@ def register_release_explorer(app: Client, config: Config, db: Database) -> None
         if not releases:
             country_label = {"all": "Global", "in": "India", "us": "USA", "kr": "Korea"}.get(country, "Global")
             text = (
-                f"🎬 **Releases of Last {days} Days**
-"
-                f"🔍 Filter: **{country_label}**
-
-"
-                f"ℹ️ No new releases found in TMDB for this filter in the last {days} days.
-
-"
+                f"🎬 **Releases of Last {days} Days**\n"
+                f"🔍 Filter: **{country_label}**\n\n"
+                f"ℹ️ No new releases found in TMDB for this filter in the last {days} days.\n\n"
                 f"👇 Tap **• All •** or **🌍 Global** below to browse hot releases:"
             )
         else:
