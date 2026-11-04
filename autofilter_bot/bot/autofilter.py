@@ -79,6 +79,19 @@ async def process_search_query(
     if len(query_text) < 2 or query_text.startswith(("/", "!", ".")):
         return
 
+    # Ignore channels completely (channels are for logs, broadcasts, and files, not search queries)
+    if message.chat.type == ChatType.CHANNEL:
+        return
+
+    # Ignore bot messages (e.g. log bots, admin bots)
+    if user and user.is_bot:
+        return
+
+    # Ignore configured admin/log/broadcast/library channels
+    ignored_chats = {config.log_channel, config.update_channel, config.public_channel, *config.library_channels}
+    if message.chat.id in ignored_chats:
+        return
+
     is_group = message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
 
     # Force Sub Verification (for PM queries and /start getfile- links)
@@ -238,7 +251,7 @@ async def process_search_query(
 
 def register_autofilter(app: Client, config: Config, db: Database) -> None:
 
-    @app.on_message(filters.text & ~filters.command(["start", "help", "new", "today", "search", "stats", "channels", "digest", "broadcast", "check_releases"]))
+    @app.on_message((filters.private | filters.group) & filters.text & ~filters.command(["start", "help", "new", "today", "search", "stats", "channels", "digest", "broadcast", "check_releases"]))
     async def handle_search_query(client: Client, message: Message) -> None:
         query_text = (message.text or "").strip()
         if len(query_text) < 2 or query_text.startswith(("/", "!", ".")):
