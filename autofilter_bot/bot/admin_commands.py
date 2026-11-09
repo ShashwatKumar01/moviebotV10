@@ -74,11 +74,12 @@ def register_admin_commands(app: Client, config: Config, db: Database) -> None:
                                 caption = format_autofilter_caption(meta, file_count=0, is_admin=is_admin)
                                 caption += "\n\nℹ️ **Library Status:** Files not yet in library."
                                 buttons = []
-                                if meta.trailer_url:
-                                    buttons.append([InlineKeyboardButton("▶️ Watch Trailer", url=meta.trailer_url)])
+                                if meta.trailer_url and meta.trailer_url.strip().startswith(("http://", "https://")) and " " not in meta.trailer_url.strip():
+                                    buttons.append([InlineKeyboardButton("▶️ Watch Trailer", url=meta.trailer_url.strip())])
+                                safe_bot = bot_username.strip().lstrip("@")
                                 buttons.append([
-                                    InlineKeyboardButton("🔍 Search Movies", url=f"https://t.me/{bot_username}?start=home"),
-                                    InlineKeyboardButton("🔥 New Releases", url=f"https://t.me/{bot_username}?start=new"),
+                                    InlineKeyboardButton("🔍 Search Movies", url=f"https://t.me/{safe_bot}?start=home"),
+                                    InlineKeyboardButton("🔥 New Releases", url=f"https://t.me/{safe_bot}?start=new"),
                                 ])
                                 kb = InlineKeyboardMarkup(buttons)
 
@@ -117,15 +118,19 @@ def register_admin_commands(app: Client, config: Config, db: Database) -> None:
             f"📢 **Join our updates:** {config.updates_channel_link}"
         )
 
+        safe_me = (client.me.username or "").strip().lstrip("@")
         buttons = [
             [
-                InlineKeyboardButton("➕ Add Me To Your Group ➕", url=f"https://t.me/{client.me.username}?startgroup=true"),
-            ],
-            [
-                InlineKeyboardButton("📢 Updates Channel", url=config.updates_channel_link),
-                InlineKeyboardButton("👥 Movie Group", url=config.movie_group_1_url),
+                InlineKeyboardButton("➕ Add Me To Your Group ➕", url=f"https://t.me/{safe_me}?startgroup=true"),
             ],
         ]
+        row2 = []
+        if config.updates_channel_link and config.updates_channel_link.strip().startswith(("http://", "https://")):
+            row2.append(InlineKeyboardButton("📢 Updates Channel", url=config.updates_channel_link.strip()))
+        if config.movie_group_1_url and config.movie_group_1_url.strip().startswith(("http://", "https://")):
+            row2.append(InlineKeyboardButton("👥 Movie Group", url=config.movie_group_1_url.strip()))
+        if row2:
+            buttons.append(row2)
 
         await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
 

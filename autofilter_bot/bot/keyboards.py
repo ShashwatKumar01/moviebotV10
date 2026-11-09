@@ -10,10 +10,19 @@ from __future__ import annotations
 
 import math
 import re
+import urllib.parse
 from typing import Any
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..core.tmdb import MediaMeta
+
+
+def is_valid_url(url: str | None) -> bool:
+    """Validate that a URL string is safe for Telegram inline keyboard buttons."""
+    if not url or not isinstance(url, str):
+        return False
+    u = url.strip()
+    return u.startswith(("https://", "http://", "tg://")) and " " not in u
 
 
 def format_bytes(size: int | float | None) -> str:
@@ -113,9 +122,12 @@ def build_title_selection_keyboard(
 
     # Share search button
     if bot_username and query_text:
-        clean_slug = re.sub(r"[^a-zA-Z0-9]+", "-", query_text).strip("-")
-        if clean_slug:
-            share_url = f"https://t.me/share/url?url=https://t.me/{bot_username}?start=q_{clean_slug}&text=Search%20Movie%20on%20iMovies"
+        clean_slug = re.sub(r"[^a-zA-Z0-9]+", "-", query_text).strip("-") or "search"
+        safe_bot = bot_username.strip().lstrip("@")
+        target_link = f"https://t.me/{safe_bot}?start=q_{clean_slug}"
+        share_text = f"Search {query_text} on iMovies"
+        share_url = f"https://t.me/share/url?url={urllib.parse.quote(target_link, safe='')}&text={urllib.parse.quote(share_text)}"
+        if is_valid_url(share_url):
             buttons.append([InlineKeyboardButton("↗️ Share Search", url=share_url)])
 
     return InlineKeyboardMarkup(buttons)
@@ -143,6 +155,7 @@ def build_autofilter_keyboard(
     buttons: list[list[InlineKeyboardButton]] = []
 
     # File buttons (1 or 2 per row depending on length)
+    clean_file_bot = (file_bot_username or "").strip().lstrip("@")
     row: list[InlineKeyboardButton] = []
     for f in current_files:
         file_id = f.get("_id") or f.get("file_id")
@@ -150,7 +163,8 @@ def build_autofilter_keyboard(
         file_size = f.get("file_size")
 
         label = extract_button_label(file_name, file_size)
-        file_url = f"https://t.me/{file_bot_username}?start=file_{file_id}"
+        clean_fid = str(file_id).strip()
+        file_url = f"https://t.me/{clean_file_bot}?start=file_{clean_fid}"
         btn = InlineKeyboardButton(label, url=file_url)
 
         if len(label) > 20:
@@ -178,10 +192,10 @@ def build_autofilter_keyboard(
 
     # Action row: Watch Trailer, Share & Back to Titles
     action_row: list[InlineKeyboardButton] = []
-    if trailer_url:
-        action_row.append(InlineKeyboardButton("▶️ Watch Trailer", url=trailer_url))
-    if share_url:
-        action_row.append(InlineKeyboardButton("↗️ Share", url=share_url))
+    if is_valid_url(trailer_url):
+        action_row.append(InlineKeyboardButton("▶️ Watch Trailer", url=trailer_url.strip()))
+    if is_valid_url(share_url):
+        action_row.append(InlineKeyboardButton("↗️ Share", url=share_url.strip()))
     action_row.append(InlineKeyboardButton("🔙 Back to Titles", callback_data=f"back_t:{query_key}:{title_page}"))
     buttons.append(action_row)
 
@@ -298,8 +312,8 @@ def release_preview_keyboard(
     """
     buttons: list[list[InlineKeyboardButton]] = []
 
-    if trailer_url:
-        buttons.append([InlineKeyboardButton("▶️ Watch Trailer", url=trailer_url)])
+    if is_valid_url(trailer_url):
+        buttons.append([InlineKeyboardButton("▶️ Watch Trailer", url=trailer_url.strip())])
 
     if is_admin:
         # Admin Channel Posting Row 1: Updates Channel
@@ -333,8 +347,8 @@ def daily_release_card_keyboard(
     """Card sent to Admin & Log Channel during daily automated releases check."""
     buttons: list[list[InlineKeyboardButton]] = []
 
-    if trailer_url:
-        buttons.append([InlineKeyboardButton("▶️ Watch Trailer", url=trailer_url)])
+    if is_valid_url(trailer_url):
+        buttons.append([InlineKeyboardButton("▶️ Watch Trailer", url=trailer_url.strip())])
 
     # Row 1: Updates Channel (Screenshot 1 format)
     if is_upd_posted:
@@ -384,8 +398,8 @@ def build_admin_alert_keyboard(
     row: list[InlineKeyboardButton] = [
         InlineKeyboardButton("📣 Broadcast", callback_data=f"bcast_rel:{media_type}:{tmdb_id}")
     ]
-    if trailer_url:
-        row.append(InlineKeyboardButton("▶️ Trailer", url=trailer_url))
+    if is_valid_url(trailer_url):
+        row.append(InlineKeyboardButton("▶️ Trailer", url=trailer_url.strip()))
     buttons.append(row)
 
     return InlineKeyboardMarkup(buttons)
@@ -395,15 +409,8 @@ def build_admin_alert_keyboard(
 # 3. Channel Post Keyboards (Screenshot 1 & 2)
 # ==========================================
 
-def is_valid_url(url: str | None) -> bool:
-    if not url or not isinstance(url, str):
-        return False
-    u = url.strip()
-    return u.startswith(("https://", "http://", "tg://"))
-
-
 def generate_getfile_slug(title: str, season_number: int | None = None) -> str:
-    clean = re.sub(r"[^A-Za-z0-9]+", "-", title.strip()).strip("-")
+    clean = re.sub(r"[^A-Za-z0-9]+", "-", title.strip()).strip("-") or "movie"
     if season_number:
         clean = f"{clean}-S{season_number:02d}"
     return clean
@@ -423,8 +430,9 @@ def build_screenshot_1_keyboard(
     Row 2: [📢 Join Channel] [👥 Join Group]
     Row 3: [▶️ Watch Trailer]
     """
+    clean_bot = (bot_username or "").strip().lstrip("@")
     slug = generate_getfile_slug(query, season_number)
-    get_files_url = f"https://t.me/{bot_username}?start=getfile-{slug}"
+    get_files_url = f"https://t.me/{clean_bot}?start=getfile-{slug}"
 
     rows: list[list[InlineKeyboardButton]] = [
         [InlineKeyboardButton("📩 Click to get Files 📩", url=get_files_url)]

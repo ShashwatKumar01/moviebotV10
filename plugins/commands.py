@@ -302,7 +302,7 @@ async def start(client, message):
               InlineKeyboardButton('▶ Gen Stream / Download Link', callback_data=f'generate_stream_link:{file_id}'),
              ],
              [
-              InlineKeyboardButton('↗️ Share File', url=f'https://t.me/share/url?url=https://t.me/{temp.U_NAME}?start=files_{file_id}&text=Download%20File'),
+              InlineKeyboardButton('↗️ Share File', url=f'https://t.me/share/url?url=https%3A%2F%2Ft.me%2F{str(temp.U_NAME or "").strip().lstrip("@")}%3Fstart%3Dfiles_{file_id}&text=Download%20File'),
              ]
             ]
         )

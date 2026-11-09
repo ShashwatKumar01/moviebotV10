@@ -65,10 +65,11 @@ async def send_daily_library_digest(client: Client, config: Config, db: Database
     lines.append("\n⚡️ All files are indexed and searchable across groups & PM!")
 
     summary_text = "\n".join(lines)
+    safe_bot = bot_username.strip().lstrip("@")
     digest_keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔍 Search Movies in Bot", url=f"https://t.me/{bot_username}?start=home"),
-            InlineKeyboardButton("🔥 New Releases", url=f"https://t.me/{bot_username}?start=new"),
+            InlineKeyboardButton("🔍 Search Movies in Bot", url=f"https://t.me/{safe_bot}?start=home"),
+            InlineKeyboardButton("🔥 New Releases", url=f"https://t.me/{safe_bot}?start=new"),
         ]
     ])
 

@@ -275,10 +275,10 @@ async def build_force_sub_keyboard(
 
     for t in missing:
         url = await get_target_url(client, t)
-        if not url:
+        if not url or not url.strip().startswith(("http://", "https://", "tg://")) or " " in url.strip():
             continue
         title = await get_target_title(client, t)
-        rows.append([InlineKeyboardButton(f"📢 Join {title}", url=url)])
+        rows.append([InlineKeyboardButton(f"📢 Join {title}", url=url.strip())])
 
     clean_payload = (retry_payload or "").strip()[:40]
     cb_data = f"fsub_try:{clean_payload}" if clean_payload else "fsub_try:home"

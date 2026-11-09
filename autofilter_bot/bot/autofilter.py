@@ -11,6 +11,7 @@ import difflib
 import logging
 import os
 import re
+import urllib.parse
 from typing import Any
 from pyrogram import Client, filters
 from pyrogram.types import Message, CallbackQuery
@@ -79,6 +80,11 @@ async def process_search_query(
     if message.chat.type == ChatType.CHANNEL or not user or user.is_bot or getattr(message, "sender_chat", None):
         return
 
+    # Ignore chat if it looks like a logging channel/group or matches configured channels
+    chat_title = (getattr(message.chat, "title", "") or "").lower()
+    if any(keyword in chat_title for keyword in ("log", "dump", "backup", "trash", "bin")):
+        return
+
     # Ignore configured admin/log/broadcast/library channels
     ignored_chats = {
         str(c) for c in (
@@ -96,8 +102,14 @@ async def process_search_query(
     if len(query_text) < 2 or query_text.startswith(("/", "!", ".", "#", "-")):
         return
 
-    # Ignore log bot texts and join requests
-    if any(tag in query_text.lower() for tag in ("#requested", "requested_content", "#newuser", "newuser", "join request", "joined")):
+    # Ignore log bot texts, bot formatting, user IDs, hashtags and join requests
+    lower_raw = raw_query.lower()
+    if (
+        "#" in raw_query
+        or "user id" in lower_raw
+        or "content name" in lower_raw
+        or any(tag in lower_raw for tag in ("requested_content", "newuser", "join request", "joined", "subscriber"))
+    ):
         return
 
     is_group = message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
@@ -366,9 +378,11 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
             selected["meta"] = meta
 
         is_admin = bool(user and user.id in config.admin_ids)
-        bot_username = getattr(getattr(client, "me", None), "username", None) or config.file_bot_username
-        clean_slug = re.sub(r"[^a-zA-Z0-9]+", "-", selected["title"]).strip("-")
-        share_url = f"https://t.me/share/url?url=https://t.me/{bot_username}?start=getfile-{clean_slug}&text=Watch%20{selected['title']}%20on%20iMovies"
+        safe_bot = (getattr(getattr(client, "me", None), "username", None) or config.file_bot_username).strip().lstrip("@")
+        clean_slug = re.sub(r"[^a-zA-Z0-9]+", "-", selected["title"]).strip("-") or "movie"
+        target_link = f"https://t.me/{safe_bot}?start=getfile-{clean_slug}"
+        share_text = f"Watch {selected['title']} on iMovies"
+        share_url = f"https://t.me/share/url?url={urllib.parse.quote(target_link, safe='')}&text={urllib.parse.quote(share_text)}"
 
         caption = format_autofilter_caption(meta, file_count=len(files), is_admin=is_admin)
         keyboard = build_autofilter_keyboard(
@@ -486,6 +500,12 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
         meta: MediaMeta | None = selected.get("meta")
 
         is_admin = bool(user and user.id in config.admin_ids)
+        safe_bot = (getattr(getattr(client, "me", None), "username", None) or config.file_bot_username).strip().lstrip("@")
+        clean_slug = re.sub(r"[^a-zA-Z0-9]+", "-", selected["title"]).strip("-") or "movie"
+        target_link = f"https://t.me/{safe_bot}?start=getfile-{clean_slug}"
+        share_text = f"Watch {selected['title']} on iMovies"
+        share_url = f"https://t.me/share/url?url={urllib.parse.quote(target_link, safe='')}&text={urllib.parse.quote(share_text)}"
+
         keyboard = build_autofilter_keyboard(
             files=files,
             file_bot_username=config.file_bot_username,
@@ -495,6 +515,7 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
             title_page=data.get("title_page", 1),
             trailer_url=meta.trailer_url if meta else None,
             is_admin=is_admin,
+            share_url=share_url,
         )
 
         try:
