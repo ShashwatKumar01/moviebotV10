@@ -294,14 +294,6 @@ def register_release_explorer(app: Client, config: Config, db: Database) -> None
     @app.on_message(filters.command(["today", "daily"]))
     async def cmd_today(client: Client, message: Message) -> None:
         await trigger_today_releases(client, message, config, db)
-            country_filter=country,
-            lang_filter=lang,
-        )
-
-        try:
-            await status.edit_text(text, reply_markup=keyboard)
-        except RPCError:
-            await message.reply_text(text, reply_markup=keyboard)
 
     # -------------------------------------------------------------
     # Filter & Pagination Callbacks
