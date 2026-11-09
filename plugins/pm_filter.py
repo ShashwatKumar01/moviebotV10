@@ -1888,12 +1888,16 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("web Download", url=lazy_download),  # we download Link
                                                     InlineKeyboardButton('▶Stream online', url=lazy_stream)]])  # web stream Link
             )
+            share_file_url = f"https://t.me/share/url?url=https://t.me/{temp.U_NAME}?start=files_{file_id}&text=Download%20File"
             await query.message.reply_text(
                 text="•• ʟɪɴᴋ ɢᴇɴᴇʀᴀᴛᴇᴅ ☠︎⚔",
                 quote=True,
                 disable_web_page_preview=True,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("web Download", url=lazy_download),  # we download Link
-                                                    InlineKeyboardButton('▶Stream online', url=lazy_stream)]])  # web stream Link
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("web Download", url=lazy_download),
+                     InlineKeyboardButton('▶Stream online', url=lazy_stream)],
+                    [InlineKeyboardButton("↗️ Share File", url=share_file_url)]
+                ])
             )
         except Exception as e:
             print(e)  # print the error message
@@ -2633,23 +2637,56 @@ async def auto_filter(client, msg, spoll=False):
                     for file in files
                 ]
     
-    btn.insert(0, 
+    detected_seasons = set()
+    for f in files:
+        fname = getattr(f, 'file_name', '') or ''
+        s_m = re.search(r"\bS(\d{1,2})\b", fname, re.IGNORECASE) or re.search(r"\bSeason\s*(\d{1,2})\b", fname, re.IGNORECASE)
+        if s_m:
+            try:
+                detected_seasons.add(int(s_m.group(1)))
+            except ValueError:
+                pass
+
+    if len(detected_seasons) > 1 and not spoll:
+        filter_btn = [
+            [InlineKeyboardButton(text="⚡ ʜᴏᴡ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ⚡", url=DOWNLOAD_TEXT_URL)],
+            [InlineKeyboardButton("♨️ ꜱᴇɴᴅ ᴀʟʟ ꜰɪʟᴇꜱ ♨️", callback_data=f"sendfiles#{key}")],
             [
-                InlineKeyboardButton("⇈ ꜱᴇʟᴇᴄᴛ ᴏᴘᴛɪᴏɴꜱ ʜᴇʀᴇ ⇈", 'select_info')
-            ])
-    btn.insert(0, 
-        [
-            InlineKeyboardButton(f'ǫᴜᴀʟɪᴛʏ', callback_data=f"qualities#{key}"),
-            InlineKeyboardButton("ʟᴀɴɢᴜᴀɢᴇ", callback_data=f"languages#{key}"),
-            InlineKeyboardButton("ꜱᴇᴀsᴏɴ",  callback_data=f"seasons#{key}")
+                InlineKeyboardButton("ǫᴜᴀʟɪᴛʏ", callback_data=f"qualities#{key}"),
+                InlineKeyboardButton("ʟᴀɴɢᴜᴀɢᴇ", callback_data=f"languages#{key}"),
+            ],
+            [InlineKeyboardButton("⇊ ꜱᴇʟᴇᴄᴛ ꜱᴇᴀꜱᴏɴ ʙᴇʟᴏᴡ ⇊", callback_data="select_info")],
+        ]
+        s_row = []
+        for s_num in sorted(list(detected_seasons)):
+            s_row.append(InlineKeyboardButton(f"📺 Season {s_num}", callback_data=f"fs#season {s_num}#{key}"))
+            if len(s_row) == 2:
+                filter_btn.append(s_row)
+                s_row = []
+        if s_row:
+            filter_btn.append(s_row)
+        filter_btn.append([
+            InlineKeyboardButton(f"📂 ᴠɪᴇᴡ ᴀʟʟ ꜰɪʟᴇꜱ ({total_results}) 📂", callback_data=f"fs#homepage#{key}")
         ])
-    btn.insert(0, [
-        InlineKeyboardButton("♨️ ꜱᴇɴᴅ ᴀʟʟ ꜰɪʟᴇꜱ ♨️", callback_data=f"sendfiles#{key}")
-    ])
-    btn.insert(0,
-    [ 
-    InlineKeyboardButton(text="⚡ ʜᴏᴡ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ⚡", url=DOWNLOAD_TEXT_URL),
-    ])
+        btn = filter_btn
+    else:
+        btn.insert(0, 
+                [
+                    InlineKeyboardButton("⇈ ꜱᴇʟᴇᴄᴛ ᴏᴘᴛɪᴏɴꜱ ʜᴇʀᴇ ⇈", 'select_info')
+                ])
+        btn.insert(0, 
+            [
+                InlineKeyboardButton(f'ǫᴜᴀʟɪᴛʏ', callback_data=f"qualities#{key}"),
+                InlineKeyboardButton("ʟᴀɴɢᴜᴀɢᴇ", callback_data=f"languages#{key}"),
+                InlineKeyboardButton("ꜱᴇᴀsᴏɴ",  callback_data=f"seasons#{key}")
+            ])
+        btn.insert(0, [
+            InlineKeyboardButton("♨️ ꜱᴇɴᴅ ᴀʟʟ ꜰɪʟᴇꜱ ♨️", callback_data=f"sendfiles#{key}")
+        ])
+        btn.insert(0,
+        [ 
+        InlineKeyboardButton(text="⚡ ʜᴏᴡ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ⚡", url=DOWNLOAD_TEXT_URL),
+        ])
 
     if offset != "":
         key = f"{message.chat.id}-{message.id}"

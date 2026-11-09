@@ -75,22 +75,25 @@ def register_channel_watcher(app: Client, config: Config, db: Database) -> None:
             logger.info("TMDB ID %d already alerted recently.", meta.id)
             return
 
-        # Check if released within last 60 days
-        if not is_released_within_days(meta, days=60):
-            logger.info("Title %r (released %s) is not within 60 days.", meta.title, meta.release_date)
+        # Check if released within last 30 days
+        if not is_released_within_days(meta, days=30):
+            logger.info("Title %r (released %s) is not within 30 days.", meta.title, meta.release_date)
             return
 
         ALERTED_TMDB_IDS.add(meta.id)
-        logger.info("🔥 New 60-day release detected: %s (%s)! Sending admin alerts...", meta.title, meta.release_date)
+        logger.info("🔥 New 30-day release detected: %s (%s)! Sending admin alerts...", meta.title, meta.release_date)
 
         # Prepare alert card
         rel_date_str = meta.release_date or "Unknown"
         media_type_label = "TV Series" if meta.media_type == "tv" else "Movie"
 
+        bot_username = getattr(getattr(client, "me", None), "username", None) or "iMoviesAutoFilterBot"
+        title_link = f"[{meta.title} ({meta.year or 'N/A'})](https://t.me/{bot_username}?start=rel_{meta.media_type}_{meta.id})"
+
         caption = (
             f"🔔 **NEW RELEASE DETECTED IN LIBRARY!** (Within 30 Days)\n\n"
             f"📁 **File:** `{filename}`\n"
-            f"🎬 **Title:** **{meta.title}** ({meta.year or 'N/A'})\n"
+            f"🎬 **Title:** {title_link}\n"
             f"📺 **Type:** {media_type_label}\n"
             f"📅 **Release Date:** {rel_date_str}\n\n"
             f"Choose where to broadcast this release:"
@@ -179,4 +182,24 @@ def register_channel_watcher(app: Client, config: Config, db: Database) -> None:
             await query.edit_message_reply_markup(reply_markup=updated_keyboard)
         except RPCError:
             pass
+
+    @app.on_callback_query(filters.regex(r"^daily_post:(upd|pub)$"))
+    async def on_daily_post_callback(client: Client, query: CallbackQuery) -> None:
+        if query.from_user.id not in config.admin_ids:
+            return await query.answer("Admins only.", show_alert=True)
+
+        dest = query.data.split(":")[1]
+        target_channel = config.update_channel if dest == "upd" else config.public_channel
+        channel_name = "Updates Channel" if dest == "upd" else "Public Channel"
+
+        if not target_channel:
+            return await query.answer(f"❌ {channel_name} ID not configured.", show_alert=True)
+
+        try:
+            text = query.message.text
+            await client.send_message(target_channel, text, disable_web_page_preview=True)
+            await query.answer(f"🚀 Broadcasted to {channel_name}!", show_alert=True)
+        except RPCError as exc:
+            logger.warning("Failed to broadcast daily report to %s: %s", channel_name, exc)
+            await query.answer(f"❌ Failed: {exc}", show_alert=True)
 

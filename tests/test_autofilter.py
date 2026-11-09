@@ -358,6 +358,47 @@ class TestAutoFilterCore(unittest.TestCase):
         self.assertEqual(len(kb2_notrailer.inline_keyboard), 1)
         self.assertEqual(kb2_notrailer.inline_keyboard[0][0].text, "🔔 Join Updates Channel")
 
+    def test_season_grouping_and_share_button(self):
+        grouped = [
+            {"title": "Spartacus", "year": "2010", "season": 1, "is_tv": True, "file_count": 12, "index": 0},
+            {"title": "Spartacus", "year": "2012", "season": 2, "is_tv": True, "file_count": 10, "index": 1},
+            {"title": "Spartacus", "year": "1960", "season": None, "is_tv": False, "file_count": 1, "index": 2},
+        ]
+        kb = build_title_selection_keyboard(
+            grouped,
+            query_key="k1",
+            page=1,
+            bot_username="testbot",
+            query_text="Spartacus",
+        )
+        labels = [b.text for row in kb.inline_keyboard for b in row]
+        self.assertIn("📺 Spartacus S01 (2010) [12]", labels)
+        self.assertIn("📺 Spartacus S02 (2012) [10]", labels)
+        self.assertIn("🎬 Spartacus (1960)", labels)
+        self.assertIn("↗️ Share Search", labels)
+
+    def test_is_released_within_30_days_strict(self):
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone.utc)
+
+        meta_recent = MediaMeta(
+            title="Recent Movie",
+            year="2026",
+            overview="Sample",
+            poster_url=None,
+            release_date=(now - timedelta(days=10)).strftime("%Y-%m-%d"),
+        )
+        self.assertTrue(is_released_within_days(meta_recent, days=30))
+
+        meta_old = MediaMeta(
+            title="The Dark Heaven",
+            year="2026",
+            overview="Sample",
+            poster_url=None,
+            release_date=(now - timedelta(days=47)).strftime("%Y-%m-%d"),
+        )
+        self.assertFalse(is_released_within_days(meta_old, days=30))
+
     def test_ttl_cache(self):
         cache = TTLCache(default_ttl_seconds=10)
         cache.set("foo", "bar")

@@ -75,21 +75,29 @@ async def process_search_query(
     if user:
         await db.save_user(user.id, user.username, user.first_name)
 
-    query_text = clean_query_text(raw_query)
-    if len(query_text) < 2 or query_text.startswith(("/", "!", ".")):
-        return
-
-    # Ignore channels completely (channels are for logs, broadcasts, and files, not search queries)
-    if message.chat.type == ChatType.CHANNEL:
-        return
-
-    # Ignore bot messages (e.g. log bots, admin bots)
-    if user and user.is_bot:
+    # Completely ignore channels, anonymous channel senders, and bots
+    if message.chat.type == ChatType.CHANNEL or not user or user.is_bot or getattr(message, "sender_chat", None):
         return
 
     # Ignore configured admin/log/broadcast/library channels
-    ignored_chats = {config.log_channel, config.update_channel, config.public_channel, *config.library_channels}
-    if message.chat.id in ignored_chats:
+    ignored_chats = {
+        str(c) for c in (
+            config.log_channel,
+            config.update_channel,
+            config.public_channel,
+            *config.library_channels,
+            *config.auth_channels,
+        ) if c is not None
+    }
+    if str(message.chat.id) in ignored_chats:
+        return
+
+    query_text = clean_query_text(raw_query)
+    if len(query_text) < 2 or query_text.startswith(("/", "!", ".", "#", "-")):
+        return
+
+    # Ignore log bot texts and join requests
+    if any(tag in query_text.lower() for tag in ("#requested", "requested_content", "#newuser", "newuser", "join request", "joined")):
         return
 
     is_group = message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
@@ -128,11 +136,11 @@ async def process_search_query(
             )
         return
 
-    # 2. Group files by distinct Title, Year, and Media Type
+    # 2. Group files by distinct Title, Season (for TV), Year, and Media Type
     # Ensure only files whose parsed title contains all query words are grouped
     query_words = [w.lower() for w in re.findall(r"[A-Za-z0-9]+", query_text)]
 
-    grouped_map: dict[tuple[str, str | None, bool], dict[str, Any]] = {}
+    grouped_map: dict[tuple[str, int | None, str | None, bool], dict[str, Any]] = {}
     for f in files:
         fname = f.get("file_name", "")
         parsed = parse_release(fname)
@@ -143,11 +151,13 @@ async def process_search_query(
         if query_words and not all(w in t_lower for w in query_words):
             continue
 
-        key = (actual_title.lower(), parsed.year, parsed.is_tv)
+        season_val = parsed.season if parsed.is_tv else None
+        key = (actual_title.lower(), season_val, parsed.year, parsed.is_tv)
         if key not in grouped_map:
             grouped_map[key] = {
                 "title": actual_title,
                 "year": parsed.year,
+                "season": season_val,
                 "is_tv": parsed.is_tv,
                 "files": [],
             }
@@ -159,11 +169,13 @@ async def process_search_query(
             fname = f.get("file_name", "")
             parsed = parse_release(fname)
             actual_title = parsed.title.strip() if parsed.title else fname[:30].strip()
-            key = (actual_title.lower(), parsed.year, parsed.is_tv)
+            season_val = parsed.season if parsed.is_tv else None
+            key = (actual_title.lower(), season_val, parsed.year, parsed.is_tv)
             if key not in grouped_map:
                 grouped_map[key] = {
                     "title": actual_title,
                     "year": parsed.year,
+                    "season": season_val,
                     "is_tv": parsed.is_tv,
                     "files": [],
                 }
@@ -174,12 +186,13 @@ async def process_search_query(
         grouped_list.append({
             "title": grp["title"],
             "year": grp["year"],
+            "season": grp.get("season"),
             "is_tv": grp["is_tv"],
             "file_count": len(grp["files"]),
             "files": grp["files"],
         })
 
-    # 3. Sort by relevance to query + Year Descending (2026 before 2025)
+    # 3. Sort by relevance to query + Year Descending + Season
     clean_q = query_text.lower().strip()
 
     def get_relevance(title: str) -> int:
@@ -192,11 +205,12 @@ async def process_search_query(
             return 60
         return 40
 
-    def sort_key(item: dict[str, Any]) -> tuple[int, int]:
+    def sort_key(item: dict[str, Any]) -> tuple[int, int, int]:
         rel = get_relevance(item["title"])
         raw_y = item.get("year")
         y = int(raw_y) if raw_y and str(raw_y).isdigit() else 0
-        return (rel, y)
+        s = item.get("season") or 0
+        return (rel, y, s)
 
     grouped_list.sort(key=sort_key, reverse=True)
 
@@ -213,11 +227,14 @@ async def process_search_query(
     }
 
     # 4. Build Step 1: Clean Title Selection List (No TMDB info)
+    bot_username = getattr(getattr(client, "me", None), "username", None) or config.file_bot_username
     keyboard = build_title_selection_keyboard(
         grouped_titles=grouped_list,
         query_key=query_key,
         page=1,
         page_size=8,
+        bot_username=bot_username,
+        query_text=query_text,
     )
 
     match_count = len(grouped_list)
@@ -251,10 +268,17 @@ async def process_search_query(
 
 def register_autofilter(app: Client, config: Config, db: Database) -> None:
 
-    @app.on_message((filters.private | filters.group) & filters.text & ~filters.command(["start", "help", "new", "today", "search", "stats", "channels", "digest", "broadcast", "check_releases"]))
+    @app.on_message(
+        (filters.private | filters.group)
+        & filters.text
+        & ~filters.bot
+        & ~filters.command(["start", "help", "new", "today", "search", "stats", "channels", "digest", "broadcast", "check_releases"])
+    )
     async def handle_search_query(client: Client, message: Message) -> None:
+        if not message.from_user or message.from_user.is_bot or getattr(message, "sender_chat", None):
+            return
         query_text = (message.text or "").strip()
-        if len(query_text) < 2 or query_text.startswith(("/", "!", ".")):
+        if len(query_text) < 2 or query_text.startswith(("/", "!", ".", "#", "-")):
             return
         await process_search_query(client, message, query_text, config, db)
 
@@ -277,12 +301,16 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
 
         data["title_page"] = page
         grouped_list = data["grouped"]
+        query_text = data.get("query", "")
+        bot_username = getattr(getattr(client, "me", None), "username", None) or config.file_bot_username
 
         keyboard = build_title_selection_keyboard(
             grouped_titles=grouped_list,
             query_key=query_key,
             page=page,
             page_size=8,
+            bot_username=bot_username,
+            query_text=query_text,
         )
 
         try:
@@ -338,6 +366,10 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
             selected["meta"] = meta
 
         is_admin = bool(user and user.id in config.admin_ids)
+        bot_username = getattr(getattr(client, "me", None), "username", None) or config.file_bot_username
+        clean_slug = re.sub(r"[^a-zA-Z0-9]+", "-", selected["title"]).strip("-")
+        share_url = f"https://t.me/share/url?url=https://t.me/{bot_username}?start=getfile-{clean_slug}&text=Watch%20{selected['title']}%20on%20iMovies"
+
         caption = format_autofilter_caption(meta, file_count=len(files), is_admin=is_admin)
         keyboard = build_autofilter_keyboard(
             files=files,
@@ -348,6 +380,7 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
             title_page=data.get("title_page", 1),
             trailer_url=meta.trailer_url,
             is_admin=is_admin,
+            share_url=share_url,
         )
 
         photo = meta.poster_url or config.default_thumbnail_path
@@ -391,11 +424,14 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
         grouped_list = data["grouped"]
         query_text = data.get("query", "")
 
+        bot_username = getattr(getattr(client, "me", None), "username", None) or config.file_bot_username
         keyboard = build_title_selection_keyboard(
             grouped_titles=grouped_list,
             query_key=query_key,
             page=title_page,
             page_size=8,
+            bot_username=bot_username,
+            query_text=query_text,
         )
 
         text = (

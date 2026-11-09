@@ -29,9 +29,17 @@ async def verupikkals(bot, message):
             success += 1
         elif pti == False:
             if sh == "Blocked":
-                blocked+=1
+                blocked += 1
+                try:
+                    await db.delete_user(int(user['id']))
+                except Exception:
+                    pass
             elif sh == "Deleted":
                 deleted += 1
+                try:
+                    await db.delete_user(int(user['id']))
+                except Exception:
+                    pass
             elif sh == "Error":
                 failed += 1
         done += 1

@@ -112,31 +112,30 @@ async def _refetch_and_render_new(client: Client, query: CallbackQuery, config: 
         pass
 
 
-def register_release_explorer(app: Client, config: Config, db: Database) -> None:
-
-    # -------------------------------------------------------------
-    # /new command (for all users)
-    # -------------------------------------------------------------
-    @app.on_message(filters.command(["new", "releases"]))
-    async def cmd_new(client: Client, message: Message) -> None:
+async def trigger_new_releases(client: Client, message: Message, config: Config, db: Database, args: list[str] | None = None) -> None:
+    """Execute /new releases workflow for command or /start deep-link."""
+    try:
         user = message.from_user
         if user:
             await db.save_user(user.id, user.username, user.first_name)
+
         if message.chat.type == ChatType.PRIVATE and user:
             if not await is_user_authorized(client, user.id, config, db):
                 await send_force_sub_prompt(client, message, config, db, retry_payload="new")
                 return
 
         if not config.tmdb_api_key:
-            return await message.reply_text("❌ TMDB_API_KEY is not configured in .env.")
+            await message.reply_text("❌ TMDB_API_KEY is not configured in .env.")
+            return
 
         days = 15
         country = config.tmdb_region or "all"
         lang = config.tmdb_orig_lang or "all"
         media_filter = "all"
 
-        # Parse optional arguments like /new 15 in, /new 7 hi, /new south, /new series
-        args = (message.text or "").split()[1:]
+        if args is None:
+            args = (message.text or "").split()[1:]
+
         for arg in args:
             val = arg.strip().lower()
             if val.isdigit():
@@ -206,24 +205,33 @@ def register_release_explorer(app: Client, config: Config, db: Database) -> None
             await status.edit_text(text, reply_markup=keyboard)
         except RPCError:
             await message.reply_text(text, reply_markup=keyboard)
+    except Exception as exc:
+        logger.exception("Error executing /new releases: %s", exc)
+        await message.reply_text(f"❌ Could not load releases: {exc}")
 
-    # -------------------------------------------------------------
-    # /today command (for all users)
-    # -------------------------------------------------------------
-    @app.on_message(filters.command(["today", "daily"]))
-    async def cmd_today(client: Client, message: Message) -> None:
+
+async def trigger_today_releases(client: Client, message: Message, config: Config, db: Database, args: list[str] | None = None) -> None:
+    """Execute /today releases workflow for command or /start deep-link."""
+    try:
         user = message.from_user
         if user:
             await db.save_user(user.id, user.username, user.first_name)
+
         if message.chat.type == ChatType.PRIVATE and user:
             if not await is_user_authorized(client, user.id, config, db):
                 await send_force_sub_prompt(client, message, config, db, retry_payload="today")
                 return
 
+        if not config.tmdb_api_key:
+            await message.reply_text("❌ TMDB_API_KEY is not configured in .env.")
+            return
+
         country = config.tmdb_region or "all"
         lang = config.tmdb_orig_lang or "all"
 
-        args = (message.text or "").split()[1:]
+        if args is None:
+            args = (message.text or "").split()[1:]
+
         for arg in args:
             val = arg.strip().lower()
             if val in COUNTRY_CODE_MAP:
@@ -258,6 +266,34 @@ def register_release_explorer(app: Client, config: Config, db: Database) -> None
             page=1,
             total_pages=total_pages,
             media_filter="all",
+            country_filter=country,
+            lang_filter=lang,
+        )
+
+        try:
+            await status.edit_text(text, reply_markup=keyboard)
+        except RPCError:
+            await message.reply_text(text, reply_markup=keyboard)
+    except Exception as exc:
+        logger.exception("Error executing /today releases: %s", exc)
+        await message.reply_text(f"❌ Could not load today releases: {exc}")
+
+
+def register_release_explorer(app: Client, config: Config, db: Database) -> None:
+
+    # -------------------------------------------------------------
+    # /new command (for all users)
+    # -------------------------------------------------------------
+    @app.on_message(filters.command(["new", "releases"]))
+    async def cmd_new(client: Client, message: Message) -> None:
+        await trigger_new_releases(client, message, config, db)
+
+    # -------------------------------------------------------------
+    # /today command (for all users)
+    # -------------------------------------------------------------
+    @app.on_message(filters.command(["today", "daily"]))
+    async def cmd_today(client: Client, message: Message) -> None:
+        await trigger_today_releases(client, message, config, db)
             country_filter=country,
             lang_filter=lang,
         )

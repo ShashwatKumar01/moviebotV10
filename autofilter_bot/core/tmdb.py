@@ -181,12 +181,10 @@ def extract_trailer_url(data: dict) -> str | None:
     return None
 
 
-def is_released_within_days(meta: MediaMeta, days: int = 60) -> bool:
-    """Check if the media was released within the past N days (default 60 days)."""
+def is_released_within_days(meta: MediaMeta, days: int = 30) -> bool:
+    """Check if the media was released within the past N days (strictly default 30 days)."""
     now = datetime.now(timezone.utc)
     if not meta.release_date:
-        if meta.year and str(meta.year).isdigit() and int(meta.year) >= now.year:
-            return True
         return False
     try:
         rel_dt = datetime.strptime(meta.release_date[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)

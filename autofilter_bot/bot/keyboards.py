@@ -59,8 +59,10 @@ def build_title_selection_keyboard(
     query_key: str,
     page: int = 1,
     page_size: int = 8,
+    bot_username: str = "",
+    query_text: str = "",
 ) -> InlineKeyboardMarkup:
-    """Step 1: Displays clean buttons for distinct movie/series titles (sorted by year desc).
+    """Step 1: Displays clean buttons for distinct movie/series titles (sorted by year desc and season).
     No TMDB info is rendered here.
     """
     total = len(grouped_titles)
@@ -75,13 +77,15 @@ def build_title_selection_keyboard(
     for item in current_items:
         title = item["title"]
         year = item.get("year")
+        season = item.get("season")
         is_tv = item.get("is_tv", False)
         group_idx = item["index"]
         file_count = item.get("file_count", 1)
 
         icon = "📺" if is_tv else "🎬"
+        season_str = f" S{season:02d}" if season is not None else ""
         year_str = f" ({year})" if year else ""
-        label = f"{icon} {title}{year_str}"
+        label = f"{icon} {title}{season_str}{year_str}"
         if file_count > 1:
             label += f" [{file_count}]"
 
@@ -107,6 +111,13 @@ def build_title_selection_keyboard(
             nav_row.append(InlineKeyboardButton("▪️", callback_data="noop"))
         buttons.append(nav_row)
 
+    # Share search button
+    if bot_username and query_text:
+        clean_slug = re.sub(r"[^a-zA-Z0-9]+", "-", query_text).strip("-")
+        if clean_slug:
+            share_url = f"https://t.me/share/url?url=https://t.me/{bot_username}?start=q_{clean_slug}&text=Search%20Movie%20on%20iMovies"
+            buttons.append([InlineKeyboardButton("↗️ Share Search", url=share_url)])
+
     return InlineKeyboardMarkup(buttons)
 
 
@@ -119,6 +130,7 @@ def build_autofilter_keyboard(
     title_page: int = 1,
     trailer_url: str | None = None,
     is_admin: bool = False,
+    share_url: str | None = None,
 ) -> InlineKeyboardMarkup:
     """Step 2: Quality / File buttons with deep links to secondary file delivery bot."""
     total_files = len(files)
@@ -164,10 +176,12 @@ def build_autofilter_keyboard(
             nav_row.append(InlineKeyboardButton("Next ▶️", callback_data=f"page_f:{page+1}:{query_key}"))
         buttons.append(nav_row)
 
-    # Action row: Watch Trailer & Back to Titles
+    # Action row: Watch Trailer, Share & Back to Titles
     action_row: list[InlineKeyboardButton] = []
     if trailer_url:
         action_row.append(InlineKeyboardButton("▶️ Watch Trailer", url=trailer_url))
+    if share_url:
+        action_row.append(InlineKeyboardButton("↗️ Share", url=share_url))
     action_row.append(InlineKeyboardButton("🔙 Back to Titles", callback_data=f"back_t:{query_key}:{title_page}"))
     buttons.append(action_row)
 

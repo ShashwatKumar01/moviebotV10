@@ -57,12 +57,20 @@ async def send_daily_library_digest(client: Client, config: Config, db: Database
         "🎬 **Releases Added to Library:**",
     ]
 
+    bot_username = getattr(getattr(client, "me", None), "username", None) or "iMoviesAutoFilterBot"
     for idx, (title, count) in enumerate(sorted(grouped.items(), key=lambda x: x[1], reverse=True)[:30], 1):
-        lines.append(f"{idx}. **{title}** — {count} file(s)")
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", title).strip("-")
+        lines.append(f"{idx}. 🎬 [{title}](https://t.me/{bot_username}?start=getfile-{slug}) — {count} file(s)")
 
     lines.append("\n⚡️ All files are indexed and searchable across groups & PM!")
 
     summary_text = "\n".join(lines)
+    digest_keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔍 Search Movies in Bot", url=f"https://t.me/{bot_username}?start=home"),
+            InlineKeyboardButton("🔥 New Releases", url=f"https://t.me/{bot_username}?start=new"),
+        ]
+    ])
 
     recipients: list[int | str] = []
     if config.log_channel:
@@ -72,7 +80,7 @@ async def send_daily_library_digest(client: Client, config: Config, db: Database
 
     for target in recipients:
         try:
-            await client.send_message(target, summary_text)
+            await client.send_message(target, summary_text, reply_markup=digest_keyboard, disable_web_page_preview=True)
             await asyncio.sleep(0.3)
         except RPCError as exc:
             logger.warning("Could not send daily digest to %s: %s", target, exc)
@@ -82,7 +90,7 @@ async def send_daily_library_digest(client: Client, config: Config, db: Database
 
 
 async def send_daily_tmdb_releases(client: Client, config: Config) -> int:
-    """Fetch today's new releases from TMDB and send actionable cards ONLY to Admin & Log Channel."""
+    """Fetch today's new releases from TMDB and send a consolidated actionable report with deep hyperlinks to Admin & Log Channel."""
     if not config.tmdb_api_key:
         logger.warning("TMDB_API_KEY not configured. Skipping daily TMDB releases check.")
         return 0
@@ -101,52 +109,50 @@ async def send_daily_tmdb_releases(client: Client, config: Config) -> int:
         logger.info("No new TMDB releases found for today.")
         return 0
 
+    bot_username = getattr(getattr(client, "me", None), "username", None) or "iMoviesAutoFilterBot"
+
+    lines = [
+        f"🌟 **DAILY RELEASES REPORT — {today_str}**\n",
+        f"Found **{len(releases)}** new OTT/Theatrical release(s) today:\n",
+    ]
+
+    for idx, meta in enumerate(releases[:15], 1):
+        icon = "📺" if meta.media_type == "tv" else "🎬"
+        rating_str = f"⭐ {meta.vote_average:.1f}/10" if meta.vote_average else "N/A"
+        date_str = meta.release_date or (meta.year or "N/A")
+        link = f"https://t.me/{bot_username}?start=rel_{meta.media_type}_{meta.id}"
+        lines.append(f"{idx}. {icon} [{meta.title} ({meta.year or 'N/A'})]({link}) — {rating_str} • 📅 `{date_str}`")
+
+    lines.append("\nℹ️ *Click any title above to open in bot, view trailer, and check available files.*")
+    lines.append("\n📢 **Choose where to broadcast this release:**")
+
+    report_text = "\n".join(lines)
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🚀 Post to Updates Channel", callback_data="daily_post:upd"),
+            InlineKeyboardButton("📢 Post to Public Channel", callback_data="daily_post:pub"),
+        ],
+        [
+            InlineKeyboardButton("🎬 Browse in Bot (/new)", url=f"https://t.me/{bot_username}?start=new"),
+        ],
+    ])
+
     recipients: list[int | str] = []
     if config.log_channel:
         recipients.append(config.log_channel)
     for admin_id in config.admin_ids:
         recipients.append(admin_id)
 
-    header = (
-        f"🌟 **DAILY RELEASES REPORT — {today_str}**\n"
-        f"Found **{len(releases)}** new OTT/Theatrical releases today.\n"
-        f"Use the buttons below to preview, post to channels, or broadcast to bot users:"
-    )
-
     for target in recipients:
         try:
-            await client.send_message(target, header)
+            await client.send_message(target, report_text, reply_markup=keyboard, disable_web_page_preview=True)
             await asyncio.sleep(0.3)
-        except RPCError:
-            pass
+        except RPCError as exc:
+            logger.warning("Failed to send consolidated daily releases report to %s: %s", target, exc)
 
-    # Send top 6 releases as individual cards with buttons
-    sent_count = 0
-    for meta in releases[:6]:
-        caption = format_media_caption(meta)
-        keyboard = daily_release_card_keyboard(
-            media_type=meta.media_type,
-            media_id=meta.id,
-            is_upd_posted=False,
-            is_pub_posted=False,
-            trailer_url=meta.trailer_url,
-        )
-        photo = meta.poster_url or config.default_thumbnail_path
-
-        for target in recipients:
-            try:
-                if photo and (photo.startswith("http") or os.path.exists(photo)):
-                    await client.send_photo(target, photo=photo, caption=caption, reply_markup=keyboard)
-                else:
-                    await client.send_message(target, text=caption, reply_markup=keyboard)
-                await asyncio.sleep(0.3)
-            except RPCError as exc:
-                logger.warning("Failed to send daily release card to %s: %s", target, exc)
-
-        sent_count += 1
-
-    logger.info("Daily TMDB releases notification sent (%d cards sent).", sent_count)
-    return sent_count
+    logger.info("Consolidated daily TMDB releases report sent (%d releases listed).", len(releases))
+    return len(releases)
 
 
 async def daily_scheduler_loop(client: Client, config: Config, db: Database) -> None:

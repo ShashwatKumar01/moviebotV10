@@ -25,11 +25,74 @@ def register_admin_commands(app: Client, config: Config, db: Database) -> None:
         if user:
             await db.save_user(user.id, user.username, user.first_name)
 
-        # Handle deep links like /start getfile-Kappi-Squad-S01 or /start getfile-Akka
+        # Handle deep links like /start getfile-Kappi-Squad-S01, /start rel_movie_123, /start new
         if len(message.command) > 1:
             raw_param = message.command[1].strip()
+
+            # 1. /start new or /start releases
+            if raw_param.lower() in ("new", "releases"):
+                from .release_explorer import trigger_new_releases
+                await trigger_new_releases(client, message, config, db)
+                return
+
+            # 2. /start today or /start daily
+            if raw_param.lower() in ("today", "daily"):
+                from .release_explorer import trigger_today_releases
+                await trigger_today_releases(client, message, config, db)
+                return
+
+            # 3. /start rel_movie_12345 or /start rel_tv_67890
+            if raw_param.startswith("rel_"):
+                try:
+                    rel_parts = raw_param[4:].split("_", 1)
+                    if len(rel_parts) == 2:
+                        media_type, media_id = rel_parts
+                        from ..core.tmdb import create_http_session, fetch_details_by_id, format_autofilter_caption
+                        from .keyboards import build_autofilter_keyboard
+                        import os
+
+                        async with create_http_session() as session:
+                            meta = await fetch_details_by_id(session, config.tmdb_api_key, media_type, media_id)
+
+                        if meta:
+                            files = await db.search_files(meta.title, max_results=50)
+                            is_admin = bool(user and user.id in config.admin_ids)
+                            bot_username = getattr(getattr(client, "me", None), "username", None) or config.file_bot_username
+                            photo = meta.poster_url or config.default_thumbnail_path
+
+                            if files:
+                                caption = format_autofilter_caption(meta, file_count=len(files), is_admin=is_admin)
+                                kb = build_autofilter_keyboard(
+                                    files=files,
+                                    file_bot_username=config.file_bot_username,
+                                    page=1,
+                                    page_size=8,
+                                    trailer_url=meta.trailer_url,
+                                    is_admin=is_admin,
+                                )
+                            else:
+                                caption = format_autofilter_caption(meta, file_count=0, is_admin=is_admin)
+                                caption += "\n\nℹ️ **Library Status:** Files not yet in library."
+                                buttons = []
+                                if meta.trailer_url:
+                                    buttons.append([InlineKeyboardButton("▶️ Watch Trailer", url=meta.trailer_url)])
+                                buttons.append([
+                                    InlineKeyboardButton("🔍 Search Movies", url=f"https://t.me/{bot_username}?start=home"),
+                                    InlineKeyboardButton("🔥 New Releases", url=f"https://t.me/{bot_username}?start=new"),
+                                ])
+                                kb = InlineKeyboardMarkup(buttons)
+
+                            if photo and (photo.startswith("http") or os.path.exists(photo)):
+                                await message.reply_photo(photo=photo, caption=caption, reply_markup=kb)
+                            else:
+                                await message.reply_text(text=caption, reply_markup=kb)
+                            return
+                except Exception as exc:
+                    logger.warning("Error resolving rel_ deep link: %s", exc)
+
+            # 4. Search query deep-links (getfile-, search-, q_)
             query = raw_param
-            for prefix in ("getfile-", "getfile_", "search-", "search_"):
+            for prefix in ("getfile-", "getfile_", "search-", "search_", "q-", "q_"):
                 if query.lower().startswith(prefix):
                     query = query[len(prefix):]
                     break
