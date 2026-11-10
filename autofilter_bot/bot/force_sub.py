@@ -337,6 +337,11 @@ async def send_force_sub_prompt_callback(
     retry_payload: str = "",
 ) -> None:
     """Send attractive force-sub alert for callback query (e.g. user selected title)."""
+    try:
+        await query.answer()
+    except RPCError:
+        pass
+
     user = query.from_user
     name = user.first_name if user else "Friend"
     missing = await get_missing_force_sub(client, user.id, config, db)

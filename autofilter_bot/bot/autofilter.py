@@ -292,6 +292,23 @@ async def render_selected_title(
 
     data = AUTOFILTER_RESULTS.get(query_key)
     if not data:
+        # Auto-recover from message text/caption
+        msg_text = (query.message.text or query.message.caption or "")
+        match = re.search(r"Search Results for:\s*`?([^`\n]+)`?", msg_text, re.IGNORECASE)
+        query_text = match.group(1).strip() if match else ""
+        if query_text:
+            files = await db.search_files(query_text)
+            if files:
+                grouped_list = group_files_by_title(files, query_text)
+                data = {
+                    "grouped": grouped_list,
+                    "query": query_text,
+                    "title_page": 1,
+                    "active_idx": None,
+                }
+                AUTOFILTER_RESULTS[query_key] = data
+
+    if not data:
         return await query.answer("Session expired. Please search again.", show_alert=True)
 
     grouped_list = data["grouped"]
@@ -303,7 +320,7 @@ async def render_selected_title(
     files = selected["files"]
 
     try:
-        await query.answer("Loading details & download links...")
+        await query.answer()
     except RPCError:
         pass
 
@@ -327,7 +344,7 @@ async def render_selected_title(
         selected["meta"] = meta
 
     is_admin = bool(user and user.id in config.admin_ids)
-    safe_bot = (getattr(getattr(client, "me", None), "username", None) or config.file_bot_username).strip().lstrip("@")
+    safe_bot = (getattr(getattr(client, "me", None), "username", None) or config.file_bot_username or "iMoviesMagic_Bot").strip().lstrip("@")
     clean_slug = re.sub(r"[^a-zA-Z0-9]+", "-", selected["title"]).strip("-") or "movie"
     target_link = f"https://t.me/{safe_bot}?start=getfile-{clean_slug}"
     share_text = f"Watch {selected['title']} on iMovies"
@@ -336,7 +353,7 @@ async def render_selected_title(
     caption = format_autofilter_caption(meta, file_count=len(files), is_admin=is_admin)
     keyboard = build_autofilter_keyboard(
         files=files,
-        file_bot_username=config.file_bot_username,
+        file_bot_username=safe_bot,
         page=1,
         page_size=8,
         query_key=query_key,
@@ -349,9 +366,14 @@ async def render_selected_title(
     photo = meta.poster_url or config.default_thumbnail_path
     chat_id = query.message.chat.id
 
-    try:
-        if photo and (photo.startswith("http") or os.path.exists(photo)):
-            sent = await client.send_photo(chat_id, photo=photo, caption=caption, reply_markup=keyboard)
+    # Telegram photo captions are limited to 1024 characters. Truncate safely for photo sends.
+    photo_caption = caption if len(caption) <= 1020 else (caption[:1017] + "...")
+
+    rendered = False
+    if photo and (photo.startswith("http") or os.path.exists(photo)):
+        try:
+            sent = await client.send_photo(chat_id, photo=photo, caption=photo_caption, reply_markup=keyboard)
+            rendered = True
             try:
                 await query.message.delete()
             except RPCError:
@@ -360,10 +382,18 @@ async def render_selected_title(
                 asyncio.create_task(
                     _auto_delete_message(client, sent.chat.id, sent.id, config.auto_delete_seconds)
                 )
-        else:
+        except Exception as exc:
+            logger.warning("Error sending photo for Step 2 (%s), falling back to text: %s", photo, exc)
+
+    if not rendered:
+        # Fallback to text edit or send
+        try:
             await query.message.edit_text(caption, reply_markup=keyboard)
-    except RPCError as exc:
-        logger.warning("Error rendering Step 2 search: %s", exc)
+        except Exception:
+            try:
+                await client.send_message(chat_id, text=caption, reply_markup=keyboard)
+            except Exception as exc:
+                logger.error("Failed to render Step 2 even with text: %s", exc)
 
 
 def register_autofilter(app: Client, config: Config, db: Database) -> None:
@@ -387,6 +417,11 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
     # -------------------------------------------------------------
     @app.on_callback_query(filters.regex(r"^page_t:"))
     async def handle_title_pagination(client: Client, query: CallbackQuery) -> None:
+        try:
+            await query.answer()
+        except RPCError:
+            pass
+
         user = query.from_user
         if user:
             await db.save_user(user.id, user.username, user.first_name)
@@ -424,6 +459,11 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
     # -------------------------------------------------------------
     @app.on_callback_query(filters.regex(r"^sel_t:"))
     async def handle_title_selection(client: Client, query: CallbackQuery) -> None:
+        try:
+            await query.answer()
+        except RPCError:
+            pass
+
         user = query.from_user
         if user:
             await db.save_user(user.id, user.username, user.first_name)
@@ -531,6 +571,11 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
     # -------------------------------------------------------------
     @app.on_callback_query(filters.regex(r"^page_f:"))
     async def handle_file_pagination(client: Client, query: CallbackQuery) -> None:
+        try:
+            await query.answer()
+        except RPCError:
+            pass
+
         user = query.from_user
         if user:
             await db.save_user(user.id, user.username, user.first_name)

@@ -155,7 +155,7 @@ def build_autofilter_keyboard(
     buttons: list[list[InlineKeyboardButton]] = []
 
     # File buttons (1 or 2 per row depending on length)
-    clean_file_bot = (file_bot_username or "").strip().lstrip("@")
+    clean_file_bot = (file_bot_username or "iMoviesMagic_Bot").strip().lstrip("@") or "iMoviesMagic_Bot"
     row: list[InlineKeyboardButton] = []
     for f in current_files:
         file_id = f.get("_id") or f.get("file_id")

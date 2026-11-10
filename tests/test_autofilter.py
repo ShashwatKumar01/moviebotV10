@@ -501,6 +501,19 @@ class TestAutoFilterCore(unittest.TestCase):
         self.assertTrue(has_secondary_join_req(777, -1002025864946))
         self.assertFalse(has_secondary_join_req(777, -999999999999))
 
+    def test_group_files_by_title(self):
+        from autofilter_bot.bot.autofilter import group_files_by_title
+        files = [
+            {"file_name": "Inception.2010.1080p.mkv", "file_size": 2000000},
+            {"file_name": "Inception.2010.720p.mkv", "file_size": 1000000},
+            {"file_name": "Interstellar.2014.1080p.mkv", "file_size": 3000000},
+        ]
+        grouped = group_files_by_title(files, "Inception")
+        self.assertEqual(len(grouped), 1)
+        self.assertEqual(grouped[0]["title"], "Inception")
+        self.assertEqual(grouped[0]["file_count"], 2)
+
+
 
 if __name__ == "__main__":
     unittest.main()
