@@ -412,9 +412,14 @@ async def get_poster(query, bulk=False, id=False, file=None):
         _cache_set(cache_key, result)
         return result
 
-async def broadcast_messages(user_id, message):
+async def broadcast_messages(user_id, message, pin=True):
     try:
-        await message.copy(chat_id=user_id)
+        sent = await message.copy(chat_id=user_id)
+        if pin and sent:
+            try:
+                await sent.pin(both_sides=True)
+            except Exception:
+                pass
         return True, "Success"
     except FloodWait as e:
         await asyncio.sleep(e.x)

@@ -114,6 +114,15 @@ class Database:
         except Exception as exc:
             logger.warning("Error saving user %s: %s", user_id, exc)
 
+    async def delete_user(self, user_id: int) -> bool:
+        """Remove user from bot_users (e.g. when user blocks bot or deactivates account)."""
+        try:
+            res = await self.users.delete_one({"_id": int(user_id)})
+            return res.deleted_count > 0
+        except Exception as exc:
+            logger.warning("Error deleting user %s: %s", user_id, exc)
+            return False
+
     async def get_all_user_ids(self) -> list[int]:
         """Fetch distinct user IDs who have interacted with this Primary Bot."""
         user_ids: set[int] = set()

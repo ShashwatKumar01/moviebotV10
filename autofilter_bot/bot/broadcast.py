@@ -384,16 +384,23 @@ async def _run_broadcast_worker(
             ACTIVE_BROADCASTS.pop(task_id, None)
             return
 
-        # 2. Deliver message
+        # 2. Deliver message & pin in user chat
         try:
+            sent_msg = None
             if photo:
-                await client.send_photo(uid, photo=photo, caption=text, reply_markup=reply_markup)
+                sent_msg = await client.send_photo(uid, photo=photo, caption=text, reply_markup=reply_markup)
             elif video:
-                await client.send_video(uid, video=video, caption=text, reply_markup=reply_markup)
+                sent_msg = await client.send_video(uid, video=video, caption=text, reply_markup=reply_markup)
             elif document:
-                await client.send_document(uid, document=document, caption=text, reply_markup=reply_markup)
+                sent_msg = await client.send_document(uid, document=document, caption=text, reply_markup=reply_markup)
             else:
-                await client.send_message(uid, text=text, reply_markup=reply_markup, disable_web_page_preview=True)
+                sent_msg = await client.send_message(uid, text=text, reply_markup=reply_markup, disable_web_page_preview=True)
+
+            if sent_msg:
+                try:
+                    await client.pin_chat_message(chat_id=uid, message_id=sent_msg.id, both_sides=True)
+                except Exception:
+                    pass
             success += 1
 
         except FloodWait as fw:
@@ -401,13 +408,22 @@ async def _run_broadcast_worker(
             await asyncio.sleep(fw.value + 1)
             # Retry once
             try:
-                await client.send_message(uid, text=text, reply_markup=reply_markup)
+                sent_msg = await client.send_message(uid, text=text, reply_markup=reply_markup)
+                if sent_msg:
+                    try:
+                        await client.pin_chat_message(chat_id=uid, message_id=sent_msg.id, both_sides=True)
+                    except Exception:
+                        pass
                 success += 1
             except Exception:
                 failed += 1
 
         except (UserIsBlocked, InputUserDeactivated):
             blocked += 1
+            try:
+                await db.delete_user(uid)
+            except Exception:
+                pass
         except (PeerIdInvalid, RPCError):
             failed += 1
         except Exception as exc:
