@@ -343,6 +343,7 @@ async def render_selected_title(
             )
         selected["meta"] = meta
 
+    is_admin = bool(user and user.id in config.admin_ids)
     file_bot = (config.file_bot_username or "iMoviesMagic_Bot").strip().lstrip("@") or "iMoviesMagic_Bot"
     primary_bot = (getattr(getattr(client, "me", None), "username", None) or "IMDBReview_bot").strip().lstrip("@")
     clean_slug = re.sub(r"[^a-zA-Z0-9]+", "-", selected["title"]).strip("-") or "movie"
@@ -464,15 +465,22 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
         except RPCError:
             pass
 
-        user = query.from_user
-        if user:
-            await db.save_user(user.id, user.username, user.first_name)
+        try:
+            user = query.from_user
+            if user:
+                await db.save_user(user.id, user.username, user.first_name)
 
-        parts = query.data.split(":")
-        query_key = parts[1]
-        group_idx = int(parts[2])
+            parts = query.data.split(":")
+            query_key = parts[1]
+            group_idx = int(parts[2])
 
-        await render_selected_title(client, query, query_key, group_idx, config, db)
+            await render_selected_title(client, query, query_key, group_idx, config, db)
+        except Exception as exc:
+            logger.error("Error in handle_title_selection: %s", exc, exc_info=True)
+            try:
+                await query.answer("An error occurred. Please try again.", show_alert=True)
+            except Exception:
+                pass
 
     # -------------------------------------------------------------
     # Step 2 -> Step 1: Back to Titles (back_t:{query_key}:{title_page})

@@ -315,6 +315,7 @@ def register_broadcast(app: Client, config: Config, db: Database) -> None:
                 status_msg=status_msg,
                 draft=draft,
                 user_ids=all_users,
+                db=db,
             )
         )
 
@@ -354,6 +355,7 @@ async def _run_broadcast_worker(
     status_msg: Message,
     draft: dict[str, Any],
     user_ids: list[int],
+    db: Database | None = None,
 ) -> None:
     """Async worker that delivers broadcast messages with rate limiting, error handling,
     live visual progress bar, and cancellation checks.
@@ -427,10 +429,11 @@ async def _run_broadcast_worker(
 
         except (UserIsBlocked, InputUserDeactivated):
             blocked += 1
-            try:
-                await db.delete_user(uid)
-            except Exception:
-                pass
+            if db:
+                try:
+                    await db.delete_user(uid)
+                except Exception:
+                    pass
         except (PeerIdInvalid, RPCError):
             failed += 1
         except Exception as exc:
