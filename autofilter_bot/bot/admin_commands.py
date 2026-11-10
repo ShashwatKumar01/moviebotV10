@@ -103,12 +103,6 @@ def register_admin_commands(app: Client, config: Config, db: Database) -> None:
                 await process_search_query(client, message, query, config, db)
                 return
 
-        # Force Sub Check for plain /start in PM
-        if message.chat.type == ChatType.PRIVATE and user:
-            if not await is_user_authorized(client, user.id, config, db):
-                await send_force_sub_prompt(client, message, config, db, retry_payload="home")
-                return
-
         text = (
             f"👋 **Hello {name}!**\n\n"
             f"Welcome to **iMovies AutoFilter Bot** 🎬\n\n"

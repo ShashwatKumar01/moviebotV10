@@ -4,11 +4,11 @@ from pyrogram.errors.exceptions.bad_request_400 import QueryIdInvalid
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultCachedDocument, InlineQuery
 from database.ia_filterdb import get_search_results_badAss_LazyDeveloperr
 from utils import is_subscribed, get_size, temp, sanitize_caption
-from info import CACHE_TIME, AUTH_USERS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION
+from info import CACHE_TIME, AUTH_USERS, AUTH_CHANNEL, AUTH_CHANNELS, CUSTOM_FILE_CAPTION
 from database.connections_mdb import active_connection
 
 logger = logging.getLogger(__name__)
-cache_time = 0 if AUTH_USERS or AUTH_CHANNEL else CACHE_TIME
+cache_time = 0 if AUTH_USERS or AUTH_CHANNEL or AUTH_CHANNELS else CACHE_TIME
 
 async def inline_users(query: InlineQuery):
     if AUTH_USERS:
@@ -32,7 +32,7 @@ async def answer(bot, query):
                            switch_pm_parameter="hehe")
         return
 
-    if AUTH_CHANNEL and not await is_subscribed(bot, query):
+    if (AUTH_CHANNELS or AUTH_CHANNEL) and not await is_subscribed(bot, query):
         await query.answer(results=[],
                            cache_time=0,
                            switch_pm_text='You have to subscribe my channel to use the bot',

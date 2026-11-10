@@ -134,18 +134,39 @@ def load_primary_config(file_bot_username: str | None = None) -> Config | None:
     auto_delete_seconds = _optional_int("AUTO_DELETE_SECONDS", 1800)
     daily_check_hour = _optional_int("DAILY_CHECK_HOUR", 9)
 
-    raw_auth_channels = os.getenv("AUTH_CHANNELS") or os.getenv("AUTH_CHANNEL") or os.getenv("FORCE_SUB_CHANNELS") or ""
-    auth_channels_list: list[int | str] = []
-    for item in raw_auth_channels.replace("\n", ",").split(","):
-        item = item.strip()
-        if not item:
-            continue
-        try:
-            auth_channels_list.append(int(item))
-        except ValueError:
-            auth_channels_list.append(item)
+    raw_primary = os.getenv("PRIMARY_AUTH_CHANNELS", "").strip()
+    if raw_primary:
+        raw_auth_sources = [raw_primary]
+    else:
+        raw_auth_sources = [
+            os.getenv("AUTH_CHANNELS", "").strip(),
+            os.getenv("AUTH_CHANNEL", "").strip(),
+            os.getenv("FORCE_SUB_CHANNELS", "").strip(),
+        ]
 
-    raw_auth_invites = os.getenv("AUTH_CHANNEL_INVITE_URLS") or os.getenv("FORCE_SUB_INVITE_URLS") or os.getenv("FORCE_SUB_INVITE_URL") or os.getenv("AUTH_CHANNEL_INVITE_URL") or ""
+    auth_channels_list: list[int | str] = []
+    for src in raw_auth_sources:
+        if not src:
+            continue
+        for item in src.replace("\n", ",").split(","):
+            item = item.strip()
+            if not item:
+                continue
+            try:
+                parsed_id: int | str = int(item)
+            except ValueError:
+                parsed_id = item
+            if parsed_id not in auth_channels_list:
+                auth_channels_list.append(parsed_id)
+
+    raw_auth_invites = (
+        os.getenv("PRIMARY_AUTH_CHANNEL_INVITE_URLS")
+        or os.getenv("AUTH_CHANNEL_INVITE_URLS")
+        or os.getenv("FORCE_SUB_INVITE_URLS")
+        or os.getenv("FORCE_SUB_INVITE_URL")
+        or os.getenv("AUTH_CHANNEL_INVITE_URL")
+        or ""
+    )
     auth_invites_list = [
         u.strip() for u in raw_auth_invites.replace("\n", ",").split(",") if u.strip()
     ]

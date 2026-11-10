@@ -31,7 +31,7 @@ from .keyboards import (
     build_autofilter_keyboard,
 )
 from .channel_poster import post_to_updates_channel, post_to_public_channel
-from .force_sub import is_user_authorized, send_force_sub_prompt
+from .force_sub import is_user_authorized, send_force_sub_prompt, send_force_sub_prompt_callback
 
 logger = logging.getLogger(__name__)
 
@@ -113,12 +113,6 @@ async def process_search_query(
         return
 
     is_group = message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
-
-    # Force Sub Verification (for PM queries and /start getfile- links)
-    if not is_group and user:
-        if not await is_user_authorized(client, user.id, config, db):
-            await send_force_sub_prompt(client, message, config, db, retry_payload=raw_query)
-            return
 
     # Immediate feedback message while query is processed
     wait_msg: Message | None = None
@@ -344,77 +338,105 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
         query_key = parts[1]
         group_idx = int(parts[2])
 
-        data = AUTOFILTER_RESULTS.get(query_key)
-        if not data:
-            return await query.answer("Session expired. Please search again.", show_alert=True)
+        # Force sub verification before revealing movie banner and files
+        is_group = query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+        if not is_group and user:
+            if not await is_user_authorized(client, user.id, config, db):
+                await send_force_sub_prompt_callback(
+                    client, query, config, db, retry_payload=f"sel_t:{query_key}:{group_idx}"
+                )
+                return
 
-        grouped_list = data["grouped"]
-        if group_idx >= len(grouped_list):
-            return await query.answer("Invalid selection.", show_alert=True)
+        await render_selected_title(client, query, query_key, group_idx, config, db)
 
-        selected = grouped_list[group_idx]
-        data["active_idx"] = group_idx
-        files = selected["files"]
 
+async def render_selected_title(
+    client: Client,
+    query: CallbackQuery,
+    query_key: str,
+    group_idx: int,
+    config: Config,
+    db: Database,
+) -> None:
+    """Render Step 2: TMDB poster, movie metadata, and quality download buttons."""
+    user = query.from_user
+    if user:
+        await db.save_user(user.id, user.username, user.first_name)
+
+    data = AUTOFILTER_RESULTS.get(query_key)
+    if not data:
+        return await query.answer("Session expired. Please search again.", show_alert=True)
+
+    grouped_list = data["grouped"]
+    if group_idx >= len(grouped_list):
+        return await query.answer("Invalid selection.", show_alert=True)
+
+    selected = grouped_list[group_idx]
+    data["active_idx"] = group_idx
+    files = selected["files"]
+
+    try:
         await query.answer("Loading details & download links...")
+    except RPCError:
+        pass
 
-        # Fetch TMDB metadata for this specific selected title
-        meta: MediaMeta | None = selected.get("meta")
+    # Fetch TMDB metadata for this specific selected title
+    meta: MediaMeta | None = selected.get("meta")
+    if not meta:
+        meta = await fetch_media_meta(
+            config.tmdb_api_key,
+            title=selected["title"],
+            year=selected["year"],
+            is_tv=selected["is_tv"],
+        )
         if not meta:
-            meta = await fetch_media_meta(
-                config.tmdb_api_key,
+            meta = MediaMeta(
                 title=selected["title"],
                 year=selected["year"],
-                is_tv=selected["is_tv"],
+                overview="",
+                poster_url=None,
+                media_type="tv" if selected["is_tv"] else "movie",
             )
-            if not meta:
-                meta = MediaMeta(
-                    title=selected["title"],
-                    year=selected["year"],
-                    overview="",
-                    poster_url=None,
-                    media_type="tv" if selected["is_tv"] else "movie",
+        selected["meta"] = meta
+
+    is_admin = bool(user and user.id in config.admin_ids)
+    safe_bot = (getattr(getattr(client, "me", None), "username", None) or config.file_bot_username).strip().lstrip("@")
+    clean_slug = re.sub(r"[^a-zA-Z0-9]+", "-", selected["title"]).strip("-") or "movie"
+    target_link = f"https://t.me/{safe_bot}?start=getfile-{clean_slug}"
+    share_text = f"Watch {selected['title']} on iMovies"
+    share_url = f"https://t.me/share/url?url={urllib.parse.quote(target_link, safe='')}&text={urllib.parse.quote(share_text)}"
+
+    caption = format_autofilter_caption(meta, file_count=len(files), is_admin=is_admin)
+    keyboard = build_autofilter_keyboard(
+        files=files,
+        file_bot_username=config.file_bot_username,
+        page=1,
+        page_size=8,
+        query_key=query_key,
+        title_page=data.get("title_page", 1),
+        trailer_url=meta.trailer_url,
+        is_admin=is_admin,
+        share_url=share_url,
+    )
+
+    photo = meta.poster_url or config.default_thumbnail_path
+    chat_id = query.message.chat.id
+
+    try:
+        if photo and (photo.startswith("http") or os.path.exists(photo)):
+            sent = await client.send_photo(chat_id, photo=photo, caption=caption, reply_markup=keyboard)
+            try:
+                await query.message.delete()
+            except RPCError:
+                pass
+            if config.auto_delete_seconds > 0:
+                asyncio.create_task(
+                    _auto_delete_message(client, sent.chat.id, sent.id, config.auto_delete_seconds)
                 )
-            selected["meta"] = meta
-
-        is_admin = bool(user and user.id in config.admin_ids)
-        safe_bot = (getattr(getattr(client, "me", None), "username", None) or config.file_bot_username).strip().lstrip("@")
-        clean_slug = re.sub(r"[^a-zA-Z0-9]+", "-", selected["title"]).strip("-") or "movie"
-        target_link = f"https://t.me/{safe_bot}?start=getfile-{clean_slug}"
-        share_text = f"Watch {selected['title']} on iMovies"
-        share_url = f"https://t.me/share/url?url={urllib.parse.quote(target_link, safe='')}&text={urllib.parse.quote(share_text)}"
-
-        caption = format_autofilter_caption(meta, file_count=len(files), is_admin=is_admin)
-        keyboard = build_autofilter_keyboard(
-            files=files,
-            file_bot_username=config.file_bot_username,
-            page=1,
-            page_size=8,
-            query_key=query_key,
-            title_page=data.get("title_page", 1),
-            trailer_url=meta.trailer_url,
-            is_admin=is_admin,
-            share_url=share_url,
-        )
-
-        photo = meta.poster_url or config.default_thumbnail_path
-        chat_id = query.message.chat.id
-
-        try:
-            if photo and (photo.startswith("http") or os.path.exists(photo)):
-                sent = await client.send_photo(chat_id, photo=photo, caption=caption, reply_markup=keyboard)
-                try:
-                    await query.message.delete()
-                except RPCError:
-                    pass
-                if config.auto_delete_seconds > 0:
-                    asyncio.create_task(
-                        _auto_delete_message(client, sent.chat.id, sent.id, config.auto_delete_seconds)
-                    )
-            else:
-                await query.message.edit_text(caption, reply_markup=keyboard)
-        except RPCError as exc:
-            logger.warning("Error rendering Step 2 search: %s", exc)
+        else:
+            await query.message.edit_text(caption, reply_markup=keyboard)
+    except RPCError as exc:
+        logger.warning("Error rendering Step 2 search: %s", exc)
 
     # -------------------------------------------------------------
     # Step 2 -> Step 1: Back to Titles (back_t:{query_key}:{title_page})

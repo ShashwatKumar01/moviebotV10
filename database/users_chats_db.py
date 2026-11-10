@@ -49,7 +49,6 @@ class Database:
                 "$or": [
                     {"id": int(id), "chat_id": int(chat_id)},
                     {"user_id": int(id), "chat_id": int(chat_id)},
-                    {"id": int(id)},
                 ]
             }))
         return bool(await self.req.find_one({

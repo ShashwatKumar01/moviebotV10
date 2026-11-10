@@ -87,7 +87,7 @@ class Database:
             doc = await self.join_reqs.find_one({
                 "$or": [
                     {"user_id": int(user_id), "chat_id": int(chat_id)},
-                    {"id": int(user_id)},
+                    {"id": int(user_id), "chat_id": int(chat_id)},
                 ]
             })
             return bool(doc)

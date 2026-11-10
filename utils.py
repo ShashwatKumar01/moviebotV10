@@ -133,10 +133,6 @@ async def is_subscribed_to_channel(bot, user_id, target):
         if await db.find_join_req(user_id, chat_id):
             return True
 
-    # Legacy fallback: any join request recorded for user
-    if await db.find_join_req(user_id):
-        return True
-
     return False
 
 async def get_missing_auth_channels(bot, user_id):

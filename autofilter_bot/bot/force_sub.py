@@ -319,6 +319,38 @@ async def send_force_sub_prompt(
         logger.warning("Error sending force sub prompt: %s", exc)
 
 
+async def send_force_sub_prompt_callback(
+    client: Client,
+    query: CallbackQuery,
+    config: Config,
+    db: Database,
+    retry_payload: str = "",
+) -> None:
+    """Send attractive force-sub alert for callback query (e.g. user selected title)."""
+    user = query.from_user
+    name = user.first_name if user else "Friend"
+    missing = await get_missing_force_sub(client, user.id, config, db)
+    if not missing:
+        return
+
+    keyboard = await build_force_sub_keyboard(client, missing, retry_payload=retry_payload)
+    text = (
+        f"👋 **Hello {name}!**\n\n"
+        f"⚠️ **Access Restricted — Channel Join Required!**\n\n"
+        f"To view details and download files for this movie / series, "
+        f"please join our channel(s) below, then tap **🔄 Try Again**!\n\n"
+        f"*(Join request approval is instant)*"
+    )
+
+    try:
+        await query.message.edit_text(text, reply_markup=keyboard)
+    except RPCError:
+        try:
+            await query.message.reply_text(text, reply_markup=keyboard)
+        except RPCError:
+            pass
+
+
 def register_force_sub_handlers(app: Client, config: Config, db: Database) -> None:
     """Register live ChatJoinRequest listener and Try Again callback."""
 
@@ -356,6 +388,14 @@ def register_force_sub_handlers(app: Client, config: Config, db: Database) -> No
         await query.answer("✅ Verified successfully!", show_alert=False)
         payload = query.data.split(":", 1)[1].strip()
 
+        if payload.startswith("sel_t:"):
+            from .autofilter import render_selected_title
+            parts = payload.split(":")
+            query_key = parts[1]
+            group_idx = int(parts[2])
+            await render_selected_title(client, query, query_key, group_idx, config, db)
+            return
+
         try:
             await query.message.delete()
         except Exception:
@@ -368,5 +408,5 @@ def register_force_sub_handlers(app: Client, config: Config, db: Database) -> No
         else:
             await client.send_message(
                 query.message.chat.id,
-                "✅ **You are now verified!**\n\n🔍 Send any Movie or Web Series name to search.",
+                "🎉 **Welcome! You are now verified.**\n\nSend any movie or web series name to search!",
             )
