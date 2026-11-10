@@ -212,7 +212,8 @@ async def is_user_authorized(
     db: Database | None = None,
 ) -> bool:
     """Check if user has satisfied all Auth Channels."""
-    if user_id in config.admin_ids:
+    force_check_admins = os.getenv("FORCE_SUB_CHECK_ADMINS", "True").strip().lower() in ("true", "1", "yes")
+    if user_id in config.admin_ids and not force_check_admins:
         return True
     missing = await get_missing_force_sub(client, user_id, config, db)
     return len(missing) == 0

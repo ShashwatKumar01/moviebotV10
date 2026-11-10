@@ -42,14 +42,19 @@ auth_channel = environ.get('AUTH_CHANNEL')
 auth_grp = environ.get('AUTH_GROUP')
 
 # Multiple Auth Channels support (Private & Public channels)
+# Priority: SECONDARY_AUTH_CHANNELS > AUTH_CHANNELS > FORCE_SUB_CHANNELS > AUTH_CHANNEL
 raw_channels = []
-for var_name in ('AUTH_CHANNELS', 'AUTH_CHANNEL', 'FORCE_SUB_CHANNELS'):
-    val = environ.get(var_name, '').strip()
-    if val:
-        for _part in val.replace('\n', ',').split(','):
-            _part = _part.strip()
-            if _part and _part not in raw_channels:
-                raw_channels.append(_part)
+_chosen_auth = (
+    environ.get('SECONDARY_AUTH_CHANNELS', '').strip()
+    or environ.get('AUTH_CHANNELS', '').strip()
+    or environ.get('FORCE_SUB_CHANNELS', '').strip()
+    or environ.get('AUTH_CHANNEL', '').strip()
+)
+if _chosen_auth:
+    for _part in _chosen_auth.replace('\n', ',').split(','):
+        _part = _part.strip()
+        if _part and _part not in raw_channels:
+            raw_channels.append(_part)
 
 AUTH_CHANNELS = []
 for _part in raw_channels:
@@ -61,9 +66,16 @@ for _part in raw_channels:
 AUTH_CHANNEL = AUTH_CHANNELS[0] if AUTH_CHANNELS and isinstance(AUTH_CHANNELS[0], int) else None
 AUTH_GROUPS = [int(ch) for ch in auth_grp.split()] if auth_grp else None
 
-raw_auth_invites = environ.get('AUTH_CHANNEL_INVITE_URLS') or environ.get('FORCE_SUB_INVITE_URLS') or environ.get('FORCE_SUB_INVITE_URL') or environ.get('AUTH_CHANNEL_INVITE_URL') or ''
+raw_auth_invites = (
+    environ.get('SECONDARY_AUTH_CHANNEL_INVITE_URLS')
+    or environ.get('AUTH_CHANNEL_INVITE_URLS')
+    or environ.get('FORCE_SUB_INVITE_URLS')
+    or environ.get('FORCE_SUB_INVITE_URL')
+    or environ.get('AUTH_CHANNEL_INVITE_URL')
+    or ''
+)
 AUTH_CHANNEL_INVITE_URLS = [_u.strip() for _u in raw_auth_invites.replace('\n', ',').split(',') if _u.strip()]
-FORCE_SUB_CHECK_ADMINS = is_enabled(environ.get('FORCE_SUB_CHECK_ADMINS', 'False'), False)
+FORCE_SUB_CHECK_ADMINS = is_enabled(environ.get('FORCE_SUB_CHECK_ADMINS', 'True'), True)
 
 # MongoDB information *
 DATABASE_URI = environ.get('DATABASE_URI', "")

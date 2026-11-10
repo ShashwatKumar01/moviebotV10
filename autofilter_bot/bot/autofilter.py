@@ -142,8 +142,59 @@ async def process_search_query(
             )
         return
 
-    # 2. Group files by distinct Title, Season (for TV), Year, and Media Type
-    # Ensure only files whose parsed title contains all query words are grouped
+    grouped_list = group_files_by_title(files, query_text)
+
+    # Generate unique session key
+    query_key = f"{message.chat.id}_{message.id}_{abs(hash(query_text)) % 100000}"
+    AUTOFILTER_RESULTS[query_key] = {
+        "grouped": grouped_list,
+        "query": query_text,
+        "title_page": 1,
+        "active_idx": None,
+    }
+
+    # 4. Build Step 1: Clean Title Selection List (No TMDB info)
+    bot_username = getattr(getattr(client, "me", None), "username", None) or config.file_bot_username
+    keyboard = build_title_selection_keyboard(
+        grouped_titles=grouped_list,
+        query_key=query_key,
+        page=1,
+        page_size=8,
+        bot_username=bot_username,
+        query_text=query_text,
+    )
+
+    match_count = len(grouped_list)
+    plural_title = "title" if match_count == 1 else "titles"
+    total_matched_files = sum(item["file_count"] for item in grouped_list)
+    plural_file = "file" if total_matched_files == 1 else "files"
+
+    text = (
+        f"🔍 **Search Results for:** `{query_text}`\n"
+        f"Found **{match_count}** {plural_title} ({total_matched_files} {plural_file}) in library.\n\n"
+        f"👇 **Select your movie / series below to get files:**"
+    )
+
+    try:
+        if wait_msg:
+            try:
+                await wait_msg.delete()
+            except RPCError:
+                pass
+
+        sent = await message.reply_text(text=text, reply_markup=keyboard)
+
+        # Auto-delete search results after configured seconds (default 30 mins)
+        if config.auto_delete_seconds > 0:
+            asyncio.create_task(
+                _auto_delete_message(client, sent.chat.id, sent.id, config.auto_delete_seconds)
+            )
+    except RPCError as exc:
+        logger.warning("Error replying to search: %s", exc)
+
+
+def group_files_by_title(files: list[dict[str, Any]], query_text: str) -> list[dict[str, Any]]:
+    """Group and sort files by distinct Title, Season (for TV), Year, and Media Type."""
     query_words = [w.lower() for w in re.findall(r"[A-Za-z0-9]+", query_text)]
 
     grouped_map: dict[tuple[str, int | None, str | None, bool], dict[str, Any]] = {}
@@ -198,7 +249,7 @@ async def process_search_query(
             "files": grp["files"],
         })
 
-    # 3. Sort by relevance to query + Year Descending + Season
+    # Sort by relevance to query + Year Descending + Season
     clean_q = query_text.lower().strip()
 
     def get_relevance(title: str) -> int:
@@ -223,131 +274,7 @@ async def process_search_query(
     for idx, item in enumerate(grouped_list):
         item["index"] = idx
 
-    # Generate unique session key
-    query_key = f"{message.chat.id}_{message.id}_{abs(hash(query_text)) % 100000}"
-    AUTOFILTER_RESULTS[query_key] = {
-        "grouped": grouped_list,
-        "query": query_text,
-        "title_page": 1,
-        "active_idx": None,
-    }
-
-    # 4. Build Step 1: Clean Title Selection List (No TMDB info)
-    bot_username = getattr(getattr(client, "me", None), "username", None) or config.file_bot_username
-    keyboard = build_title_selection_keyboard(
-        grouped_titles=grouped_list,
-        query_key=query_key,
-        page=1,
-        page_size=8,
-        bot_username=bot_username,
-        query_text=query_text,
-    )
-
-    match_count = len(grouped_list)
-    plural_title = "title" if match_count == 1 else "titles"
-    total_matched_files = sum(item["file_count"] for item in grouped_list)
-    plural_file = "file" if total_matched_files == 1 else "files"
-
-    text = (
-        f"🔍 **Search Results for:** `{query_text}`\n"
-        f"Found **{match_count}** {plural_title} ({total_matched_files} {plural_file}) in library.\n\n"
-        f"👇 **Select your movie / series below to get files:**"
-    )
-
-    try:
-        if wait_msg:
-            try:
-                await wait_msg.delete()
-            except RPCError:
-                pass
-
-        sent = await message.reply_text(text=text, reply_markup=keyboard)
-
-        # Auto-delete search results after configured seconds (default 30 mins)
-        if config.auto_delete_seconds > 0:
-            asyncio.create_task(
-                _auto_delete_message(client, sent.chat.id, sent.id, config.auto_delete_seconds)
-            )
-    except RPCError as exc:
-        logger.warning("Error replying to search: %s", exc)
-
-
-def register_autofilter(app: Client, config: Config, db: Database) -> None:
-
-    @app.on_message(
-        (filters.private | filters.group)
-        & filters.text
-        & ~filters.bot
-        & ~filters.command(["start", "help", "new", "today", "search", "stats", "channels", "digest", "broadcast", "check_releases"])
-    )
-    async def handle_search_query(client: Client, message: Message) -> None:
-        if not message.from_user or message.from_user.is_bot or getattr(message, "sender_chat", None):
-            return
-        query_text = (message.text or "").strip()
-        if len(query_text) < 2 or query_text.startswith(("/", "!", ".", "#", "-")):
-            return
-        await process_search_query(client, message, query_text, config, db)
-
-    # -------------------------------------------------------------
-    # Step 1: Title Pagination (page_t:{page}:{query_key})
-    # -------------------------------------------------------------
-    @app.on_callback_query(filters.regex(r"^page_t:"))
-    async def handle_title_pagination(client: Client, query: CallbackQuery) -> None:
-        user = query.from_user
-        if user:
-            await db.save_user(user.id, user.username, user.first_name)
-
-        parts = query.data.split(":")
-        page = int(parts[1])
-        query_key = parts[2]
-
-        data = AUTOFILTER_RESULTS.get(query_key)
-        if not data:
-            return await query.answer("Session expired. Please search again.", show_alert=True)
-
-        data["title_page"] = page
-        grouped_list = data["grouped"]
-        query_text = data.get("query", "")
-        bot_username = getattr(getattr(client, "me", None), "username", None) or config.file_bot_username
-
-        keyboard = build_title_selection_keyboard(
-            grouped_titles=grouped_list,
-            query_key=query_key,
-            page=page,
-            page_size=8,
-            bot_username=bot_username,
-            query_text=query_text,
-        )
-
-        try:
-            await query.edit_message_reply_markup(reply_markup=keyboard)
-            await query.answer()
-        except RPCError:
-            pass
-
-    # -------------------------------------------------------------
-    # Step 2: User Selects Title (sel_t:{query_key}:{group_idx})
-    # -------------------------------------------------------------
-    @app.on_callback_query(filters.regex(r"^sel_t:"))
-    async def handle_title_selection(client: Client, query: CallbackQuery) -> None:
-        user = query.from_user
-        if user:
-            await db.save_user(user.id, user.username, user.first_name)
-
-        parts = query.data.split(":")
-        query_key = parts[1]
-        group_idx = int(parts[2])
-
-        # Force sub verification before revealing movie banner and files
-        is_group = query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
-        if not is_group and user:
-            if not await is_user_authorized(client, user.id, config, db):
-                await send_force_sub_prompt_callback(
-                    client, query, config, db, retry_payload=f"sel_t:{query_key}:{group_idx}"
-                )
-                return
-
-        await render_selected_title(client, query, query_key, group_idx, config, db)
+    return grouped_list
 
 
 async def render_selected_title(
@@ -438,11 +365,94 @@ async def render_selected_title(
     except RPCError as exc:
         logger.warning("Error rendering Step 2 search: %s", exc)
 
+
+def register_autofilter(app: Client, config: Config, db: Database) -> None:
+
+    @app.on_message(
+        (filters.private | filters.group)
+        & filters.text
+        & ~filters.bot
+        & ~filters.command(["start", "help", "new", "today", "search", "stats", "channels", "digest", "broadcast", "check_releases"])
+    )
+    async def handle_search_query(client: Client, message: Message) -> None:
+        if not message.from_user or message.from_user.is_bot or getattr(message, "sender_chat", None):
+            return
+        query_text = (message.text or "").strip()
+        if len(query_text) < 2 or query_text.startswith(("/", "!", ".", "#", "-")):
+            return
+        await process_search_query(client, message, query_text, config, db)
+
+    # -------------------------------------------------------------
+    # Step 1: Title Pagination (page_t:{page}:{query_key})
+    # -------------------------------------------------------------
+    @app.on_callback_query(filters.regex(r"^page_t:"))
+    async def handle_title_pagination(client: Client, query: CallbackQuery) -> None:
+        user = query.from_user
+        if user:
+            await db.save_user(user.id, user.username, user.first_name)
+
+        parts = query.data.split(":")
+        page = int(parts[1])
+        query_key = parts[2]
+
+        data = AUTOFILTER_RESULTS.get(query_key)
+        if not data:
+            return await query.answer("Session expired. Please search again.", show_alert=True)
+
+        data["title_page"] = page
+        grouped_list = data["grouped"]
+        query_text = data.get("query", "")
+        bot_username = getattr(getattr(client, "me", None), "username", None) or config.file_bot_username
+
+        keyboard = build_title_selection_keyboard(
+            grouped_titles=grouped_list,
+            query_key=query_key,
+            page=page,
+            page_size=8,
+            bot_username=bot_username,
+            query_text=query_text,
+        )
+
+        try:
+            await query.edit_message_reply_markup(reply_markup=keyboard)
+            await query.answer()
+        except RPCError:
+            pass
+
+    # -------------------------------------------------------------
+    # Step 2: User Selects Title (sel_t:{query_key}:{group_idx})
+    # -------------------------------------------------------------
+    @app.on_callback_query(filters.regex(r"^sel_t:"))
+    async def handle_title_selection(client: Client, query: CallbackQuery) -> None:
+        user = query.from_user
+        if user:
+            await db.save_user(user.id, user.username, user.first_name)
+
+        parts = query.data.split(":")
+        query_key = parts[1]
+        group_idx = int(parts[2])
+
+        # Force sub verification before revealing movie banner and files
+        is_group = query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+        if not is_group and user:
+            if not await is_user_authorized(client, user.id, config, db):
+                await send_force_sub_prompt_callback(
+                    client, query, config, db, retry_payload=f"sel_t:{query_key}:{group_idx}"
+                )
+                return
+
+        await render_selected_title(client, query, query_key, group_idx, config, db)
+
     # -------------------------------------------------------------
     # Step 2 -> Step 1: Back to Titles (back_t:{query_key}:{title_page})
     # -------------------------------------------------------------
     @app.on_callback_query(filters.regex(r"^back_t:"))
     async def handle_back_to_titles(client: Client, query: CallbackQuery) -> None:
+        try:
+            await query.answer()
+        except RPCError:
+            pass
+
         user = query.from_user
         if user:
             await db.save_user(user.id, user.username, user.first_name)
@@ -452,6 +462,23 @@ async def render_selected_title(
         title_page = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 1
 
         data = AUTOFILTER_RESULTS.get(query_key)
+        if not data:
+            # Auto-recovery: recover query text from caption/text or message
+            msg_text = (query.message.caption or query.message.text or "")
+            match = re.search(r"\*\*(.+?)\*\*", msg_text)
+            extracted_title = match.group(1).strip() if match else ""
+            if extracted_title:
+                files = await db.search_files(extracted_title)
+                if files:
+                    grouped_list = group_files_by_title(files, extracted_title)
+                    data = {
+                        "grouped": grouped_list,
+                        "query": extracted_title,
+                        "title_page": title_page,
+                        "active_idx": None,
+                    }
+                    AUTOFILTER_RESULTS[query_key] = data
+
         if not data:
             return await query.answer("Session expired. Please search again.", show_alert=True)
 
@@ -470,15 +497,19 @@ async def render_selected_title(
             query_text=query_text,
         )
 
+        match_count = len(grouped_list)
+        plural_title = "title" if match_count == 1 else "titles"
+        total_matched_files = sum(item["file_count"] for item in grouped_list)
+        plural_file = "file" if total_matched_files == 1 else "files"
+
         text = (
             f"🔍 **Search Results for:** `{query_text}`\n"
-            f"Found **{len(grouped_list)}** matching title(s) in library.\n\n"
+            f"Found **{match_count}** {plural_title} ({total_matched_files} {plural_file}) in library.\n\n"
             f"👇 **Select your movie / series below to get files:**"
         )
 
         chat_id = query.message.chat.id
 
-        # If previous message was a photo message, delete it and send text
         try:
             if query.message.photo:
                 try:
@@ -492,7 +523,6 @@ async def render_selected_title(
                     )
             else:
                 await query.message.edit_text(text=text, reply_markup=keyboard)
-            await query.answer()
         except RPCError as exc:
             logger.warning("Error in back to titles: %s", exc)
 

@@ -136,8 +136,12 @@ async def is_subscribed_to_channel(bot, user_id, target):
             return False
     except UserNotParticipant:
         pass
-    except Exception:
-        pass
+    except ChatAdminRequired:
+        logger.warning(f"Bot is not admin in Auth Channel {ref}! Force-sub requires bot to be admin.")
+        return False
+    except Exception as exc:
+        logger.warning(f"Error checking chat member for {user_id} in {ref}: {exc}")
+        return False
 
     # 2. Check if pending join request exists
     if chat_id:
@@ -163,7 +167,8 @@ async def get_missing_auth_channels(bot, user_id, check_admin=False):
     return missing
 
 async def is_subscribed(bot, query):
-    user_id = getattr(getattr(query, "from_user", None), "id", None)
+    user = getattr(query, "from_user", None)
+    user_id = getattr(user, "id", None)
     if not user_id:
         return False
     missing = await get_missing_auth_channels(bot, user_id)
@@ -171,7 +176,6 @@ async def is_subscribed(bot, query):
 
 async def build_auth_channels_markup(bot, missing_targets, retry_payload=None):
     from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-    from plugins.commands import temp
     buttons = []
     for t in missing_targets:
         url = t.get("url")
@@ -187,22 +191,23 @@ async def build_auth_channels_markup(bot, missing_targets, retry_payload=None):
             continue
         title = "Updates Channel"
         try:
-            if t.get("ref"):
+            if bot and t.get("ref"):
                 chat = await bot.get_chat(t["ref"])
                 title = chat.title or title
         except Exception:
             pass
         buttons.append([InlineKeyboardButton(f"🤖 Join {title}", url=url)])
 
-    if retry_payload:
-        if retry_payload != "subscribe":
-            try:
-                kk, file_id = retry_payload.split("_", 1)
-                pre = 'checksubp' if kk == 'filep' else 'checksub' 
-                buttons.append([InlineKeyboardButton(" 🔄 Try Again", callback_data=f"{pre}#{file_id}")])
-            except (IndexError, ValueError):
-                bot_user = getattr(temp, "U_NAME", None) or "iMoviesMagic_Bot"
-                buttons.append([InlineKeyboardButton(" 🔄 Try Again", url=f"https://t.me/{bot_user}?start={retry_payload}")])
+    if retry_payload and retry_payload != "subscribe":
+        try:
+            kk, file_id = retry_payload.split("_", 1)
+            pre = 'checksubp' if kk == 'filep' else 'checksub' 
+            buttons.append([InlineKeyboardButton(" 🔄 Try Again", callback_data=f"{pre}#{file_id}")])
+        except (IndexError, ValueError):
+            bot_user = getattr(temp, "U_NAME", None) or "iMoviesMagic_Bot"
+            buttons.append([InlineKeyboardButton(" 🔄 Try Again", url=f"https://t.me/{bot_user}?start={retry_payload}")])
+    else:
+        buttons.append([InlineKeyboardButton("✅ Check Joined", callback_data="check_join")])
     return InlineKeyboardMarkup(buttons)
 
 _TMDB_BASE = "https://api.themoviedb.org/3"

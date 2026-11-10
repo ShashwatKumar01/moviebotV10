@@ -81,7 +81,7 @@ class Database:
         except Exception as exc:
             logger.warning("Error saving join request for user %s: %s", user_id, exc)
 
-    async def has_join_request(self, user_id: int, chat_id: int) -> bool:
+    async def has_join_request(self, user_id: int, chat_id: int, max_age_seconds: int = 86400 * 3) -> bool:
         """Check if user has an active/pending join request for this chat."""
         try:
             doc = await self.join_reqs.find_one({
@@ -90,7 +90,17 @@ class Database:
                     {"id": int(user_id), "chat_id": int(chat_id)},
                 ]
             })
-            return bool(doc)
+            if not doc:
+                return False
+            req_at = doc.get("requested_at")
+            if req_at and isinstance(req_at, datetime):
+                if req_at.tzinfo is None:
+                    req_at = req_at.replace(tzinfo=timezone.utc)
+                age = (datetime.now(timezone.utc) - req_at).total_seconds()
+                if age > max_age_seconds:
+                    await self.join_reqs.delete_one({"_id": doc["_id"]})
+                    return False
+            return True
         except Exception:
             return False
 

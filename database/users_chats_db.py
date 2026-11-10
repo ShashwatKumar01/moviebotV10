@@ -1,6 +1,7 @@
 # https://github.com/odysseusmax/animated-lamp/blob/master/bot/database/database.py
 import motor.motor_asyncio
 import datetime
+import time
 from info import DATABASE_NAME, DATABASE_URI, IMDB, IMDB_TEMPLATE, MELCOW_NEW_USERS, P_TTI_SHOW_OFF, SINGLE_BUTTON, SPELL_CHECK_REPLY, PROTECT_CONTENT, MAX_BTN, URL_MODE, TUTORIAL, IS_TUTORIAL, URL_SHORTENR_WEBSITE, URL_SHORTNER_WEBSITE_API
 
 class Database:
@@ -43,20 +44,27 @@ class Database:
             ),
         )
     
-    async def find_join_req(self, id, chat_id=None):
+    async def find_join_req(self, id, chat_id=None, max_age_seconds=86400 * 3):
+        filt = {"$or": [{"id": int(id)}, {"user_id": int(id)}]}
         if chat_id:
-            return bool(await self.req.find_one({
+            filt = {
                 "$or": [
                     {"id": int(id), "chat_id": int(chat_id)},
                     {"user_id": int(id), "chat_id": int(chat_id)},
                 ]
-            }))
-        return bool(await self.req.find_one({
-            "$or": [{"id": int(id)}, {"user_id": int(id)}]
-        }))
+            }
+        doc = await self.req.find_one(filt)
+        if not doc:
+            return False
+        created_at = doc.get("created_at")
+        if created_at is not None:
+            if (time.time() - float(created_at)) > max_age_seconds:
+                await self.req.delete_one({"_id": doc["_id"]})
+                return False
+        return True
         
     async def add_join_req(self, id, chat_id=None):
-        doc = {"id": int(id), "user_id": int(id)}
+        doc = {"id": int(id), "user_id": int(id), "created_at": time.time()}
         if chat_id:
             doc["chat_id"] = int(chat_id)
         filt = {"id": int(id)}

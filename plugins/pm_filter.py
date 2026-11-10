@@ -1624,6 +1624,32 @@ async def cb_handler(client: Client, query: CallbackQuery):
         except Exception as e:
             await query.answer(url=f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}")
             
+    elif query.data == "check_join":
+        if (AUTH_CHANNELS or AUTH_CHANNEL) and not await is_subscribed(client, query):
+            await query.answer("⚠️ You have not joined our updates channel yet! Please join or request to join first.", show_alert=True)
+            return
+        await query.answer("✅ Verified! Welcome to iMovies!", show_alert=False)
+        buttons = [[
+            InlineKeyboardButton('➕↖️ Add Me To Your Groups ↗️➕', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
+        ],
+            [
+                InlineKeyboardButton('⚠️Join Backup', url=f'http://t.me/{MOVIE_GROUP_USERNAME}')
+            ],
+            [
+                InlineKeyboardButton('🔔 Updates Channel 🤖', url='https://t.me/imoviesmagic')
+            ],
+            [
+                InlineKeyboardButton('🙆🏻 Help 🦾', callback_data='help'),
+                InlineKeyboardButton('♥️ About ♥️', callback_data='about')
+            ]]
+        try:
+            await query.message.edit_text(
+                script.START_TXT.format(query.from_user.mention, temp.U_NAME, temp.B_NAME),
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=enums.ParseMode.HTML
+            )
+        except Exception:
+            pass
     elif query.data.startswith("checksub"):
         if (AUTH_CHANNELS or AUTH_CHANNEL) and not await is_subscribed(client, query):
             await query.answer("Mere saamne jyada smart nhi banne ka 😒", show_alert=True)
