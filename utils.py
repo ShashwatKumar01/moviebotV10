@@ -54,14 +54,20 @@ class temp(object):
     SETTINGS = {}
     CHANNELS = set()  # live-updated library channel ids, no restart needed to add a new one
 
-# In-memory fast cache for secondary bot join requests: user_id -> set of chat_ids
+# In-memory fast cache for secondary bot join requests: user_id -> {chat_id: timestamp}
 _SECONDARY_JOIN_REQUESTS: dict = {}
 
 def record_secondary_join_req(user_id: int, chat_id: int) -> None:
-    _SECONDARY_JOIN_REQUESTS.setdefault(int(user_id), set()).add(int(chat_id))
+    _SECONDARY_JOIN_REQUESTS.setdefault(int(user_id), {})[int(chat_id)] = _time.time()
 
-def has_secondary_join_req(user_id: int, chat_id: int) -> bool:
-    return int(chat_id) in _SECONDARY_JOIN_REQUESTS.get(int(user_id), set())
+def has_secondary_join_req(user_id: int, chat_id: int, max_age_seconds: float = 14400) -> bool:
+    ts = (_SECONDARY_JOIN_REQUESTS.get(int(user_id)) or {}).get(int(chat_id))
+    if ts is None:
+        return False
+    if (_time.time() - ts) > max_age_seconds:
+        _SECONDARY_JOIN_REQUESTS.get(int(user_id), {}).pop(int(chat_id), None)
+        return False
+    return True
 
 def get_auth_targets():
     from info import AUTH_CHANNELS, AUTH_CHANNEL_INVITE_URLS

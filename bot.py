@@ -62,6 +62,11 @@ async def Lazy_start():
     temp.BANNED_CHATS = b_chats
     temp.LAZY_VERIFIED_CHATS = lz_verified
     await Media.ensure_indexes()
+    try:
+        await db.req.delete_many({"created_at": {"$exists": False}})
+        logging.info("Purged un-timestamped legacy join requests.")
+    except Exception as exc:
+        logging.warning("Error cleaning stale join requests: %s", exc)
 
     # One-time migration: fold any legacy CHANNELS env ids into the mongo
     # registry, then load the live set from mongo. From here on, new

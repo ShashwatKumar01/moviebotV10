@@ -343,17 +343,17 @@ async def render_selected_title(
             )
         selected["meta"] = meta
 
-    is_admin = bool(user and user.id in config.admin_ids)
-    safe_bot = (getattr(getattr(client, "me", None), "username", None) or config.file_bot_username or "iMoviesMagic_Bot").strip().lstrip("@")
+    file_bot = (config.file_bot_username or "iMoviesMagic_Bot").strip().lstrip("@") or "iMoviesMagic_Bot"
+    primary_bot = (getattr(getattr(client, "me", None), "username", None) or "IMDBReview_bot").strip().lstrip("@")
     clean_slug = re.sub(r"[^a-zA-Z0-9]+", "-", selected["title"]).strip("-") or "movie"
-    target_link = f"https://t.me/{safe_bot}?start=getfile-{clean_slug}"
+    target_link = f"https://t.me/{primary_bot}?start=getfile-{clean_slug}"
     share_text = f"Watch {selected['title']} on iMovies"
     share_url = f"https://t.me/share/url?url={urllib.parse.quote(target_link, safe='')}&text={urllib.parse.quote(share_text)}"
 
     caption = format_autofilter_caption(meta, file_count=len(files), is_admin=is_admin)
     keyboard = build_autofilter_keyboard(
         files=files,
-        file_bot_username=safe_bot,
+        file_bot_username=file_bot,
         page=1,
         page_size=8,
         query_key=query_key,
@@ -471,15 +471,6 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
         parts = query.data.split(":")
         query_key = parts[1]
         group_idx = int(parts[2])
-
-        # Force sub verification before revealing movie banner and files
-        is_group = query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
-        if not is_group and user:
-            if not await is_user_authorized(client, user.id, config, db):
-                await send_force_sub_prompt_callback(
-                    client, query, config, db, retry_payload=f"sel_t:{query_key}:{group_idx}"
-                )
-                return
 
         await render_selected_title(client, query, query_key, group_idx, config, db)
 

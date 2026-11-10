@@ -44,7 +44,7 @@ class Database:
             ),
         )
     
-    async def find_join_req(self, id, chat_id=None, max_age_seconds=86400 * 3):
+    async def find_join_req(self, id, chat_id=None, max_age_seconds=14400):
         filt = {"$or": [{"id": int(id)}, {"user_id": int(id)}]}
         if chat_id:
             filt = {
@@ -57,10 +57,9 @@ class Database:
         if not doc:
             return False
         created_at = doc.get("created_at")
-        if created_at is not None:
-            if (time.time() - float(created_at)) > max_age_seconds:
-                await self.req.delete_one({"_id": doc["_id"]})
-                return False
+        if created_at is None or (time.time() - float(created_at)) > max_age_seconds:
+            await self.req.delete_many(filt)
+            return False
         return True
         
     async def add_join_req(self, id, chat_id=None):
