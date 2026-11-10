@@ -987,7 +987,13 @@ async def removetutorial(bot, message):
 
 @Client.on_message(filters.command(["new", "releases", "today", "daily"]) & filters.incoming)
 async def new_releases_secondary(bot, message):
-    primary_username = os.getenv("PRIMARY_BOT_USERNAME", "iMoviesAutoFilterBot").strip().lstrip("@")
+    from utils import temp
+    primary_username = (
+        getattr(temp, "PRIMARY_BOT_USERNAME", None)
+        or os.getenv("PRIMARY_BOT_USERNAME", "")
+    ).strip().lstrip("@")
+    if not primary_username:
+        return
     btn = [[InlineKeyboardButton("🎬 Browse Releases on Primary Bot", url=f"https://t.me/{primary_username}?start=new")]]
     await message.reply_text(
         "⚡️ **Browse Hot OTT & Theatrical Releases:**\n\n"
