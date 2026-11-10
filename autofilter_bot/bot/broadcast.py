@@ -212,7 +212,14 @@ def register_broadcast(app: Client, config: Config, db: Database) -> None:
 
         draft_id = str(uuid.uuid4())[:8]
         caption = format_screenshot_2_caption(meta)
-        bot_username = getattr(client.me, "username", None) or "iMoviesAutoFilterBot"
+        bot_info = getattr(client, "me", None)
+        if not bot_info or not getattr(bot_info, "username", None):
+            try:
+                bot_info = await client.get_me()
+                client.me = bot_info
+            except Exception:
+                pass
+        bot_username = getattr(bot_info, "username", None) or ""
         markup = build_screenshot_2_keyboard(
             bot_username=bot_username,
             query=meta.title,

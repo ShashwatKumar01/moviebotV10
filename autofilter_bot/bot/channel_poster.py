@@ -25,7 +25,14 @@ async def post_to_updates_channel(client: Client, config: Config, meta: MediaMet
         logger.warning("UPDATE_CHANNEL is not configured.")
         return False
 
-    bot_username = getattr(client.me, "username", None) or "iMoviesAutoFilterBot"
+    bot_info = getattr(client, "me", None)
+    if not bot_info or not getattr(bot_info, "username", None):
+        try:
+            bot_info = await client.get_me()
+            client.me = bot_info
+        except Exception:
+            pass
+    bot_username = getattr(bot_info, "username", None) or ""
     caption = format_screenshot_1_caption(meta)
     keyboard = build_screenshot_1_keyboard(
         bot_username=bot_username,
@@ -64,7 +71,14 @@ async def post_to_public_channel(client: Client, config: Config, meta: MediaMeta
         logger.warning("PUBLIC_CHANNEL is not configured.")
         return False
 
-    bot_username = getattr(client.me, "username", None) or "iMoviesAutoFilterBot"
+    bot_info = getattr(client, "me", None)
+    if not bot_info or not getattr(bot_info, "username", None):
+        try:
+            bot_info = await client.get_me()
+            client.me = bot_info
+        except Exception:
+            pass
+    bot_username = getattr(bot_info, "username", None) or ""
     caption = format_screenshot_2_caption(meta)
     keyboard = build_screenshot_2_keyboard(
         bot_username=bot_username,

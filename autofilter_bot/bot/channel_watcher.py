@@ -87,7 +87,14 @@ def register_channel_watcher(app: Client, config: Config, db: Database) -> None:
         rel_date_str = meta.release_date or "Unknown"
         media_type_label = "TV Series" if meta.media_type == "tv" else "Movie"
 
-        bot_username = getattr(getattr(client, "me", None), "username", None) or "iMoviesAutoFilterBot"
+        bot_info = getattr(client, "me", None)
+        if not bot_info or not getattr(bot_info, "username", None):
+            try:
+                bot_info = await client.get_me()
+                client.me = bot_info
+            except Exception:
+                pass
+        bot_username = getattr(bot_info, "username", None) or ""
         title_link = f"[{meta.title} ({meta.year or 'N/A'})](https://t.me/{bot_username}?start=rel_{meta.media_type}_{meta.id})"
 
         caption = (

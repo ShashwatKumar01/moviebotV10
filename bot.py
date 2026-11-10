@@ -88,9 +88,12 @@ async def Lazy_start():
         primary_config = load_primary_config(file_bot_username=me.username)
         if primary_config:
             primary_app, primary_scheduler, _ = await start_primary_bot(primary_config, file_bot_username=me.username)
-            if primary_app and getattr(primary_app, "me", None) and primary_app.me.username:
-                temp.PRIMARY_BOT_USERNAME = primary_app.me.username
-                logging.info(f"Registered Primary Bot username: @{temp.PRIMARY_BOT_USERNAME}")
+            if primary_app:
+                temp.PRIMARY_APP = primary_app
+                p_me = getattr(primary_app, "me", None) or await primary_app.get_me()
+                primary_app.me = p_me
+                temp.PRIMARY_BOT_USERNAME = p_me.username
+                logging.info(f"Registered Primary Bot username via get_me(): @{temp.PRIMARY_BOT_USERNAME}")
     except Exception as exc:
         logging.error("Failed to start Primary AutoFilter Bot: %s", exc, exc_info=True)
 

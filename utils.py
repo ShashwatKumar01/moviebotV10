@@ -49,6 +49,8 @@ class temp(object):
     IMDB_CAP = {}
     U_NAME = None
     B_NAME = None
+    PRIMARY_APP = None
+    PRIMARY_BOT_USERNAME = None
     SETTINGS = {}
     CHANNELS = set()  # live-updated library channel ids, no restart needed to add a new one
 

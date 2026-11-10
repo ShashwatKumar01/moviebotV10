@@ -57,7 +57,14 @@ async def send_daily_library_digest(client: Client, config: Config, db: Database
         "🎬 **Releases Added to Library:**",
     ]
 
-    bot_username = getattr(getattr(client, "me", None), "username", None) or "iMoviesAutoFilterBot"
+    bot_info = getattr(client, "me", None)
+    if not bot_info or not getattr(bot_info, "username", None):
+        try:
+            bot_info = await client.get_me()
+            client.me = bot_info
+        except Exception:
+            pass
+    bot_username = getattr(bot_info, "username", None) or ""
     for idx, (title, count) in enumerate(sorted(grouped.items(), key=lambda x: x[1], reverse=True)[:30], 1):
         slug = re.sub(r"[^a-zA-Z0-9]+", "-", title).strip("-")
         lines.append(f"{idx}. 🎬 [{title}](https://t.me/{bot_username}?start=getfile-{slug}) — {count} file(s)")
@@ -110,7 +117,14 @@ async def send_daily_tmdb_releases(client: Client, config: Config) -> int:
         logger.info("No new TMDB releases found for today.")
         return 0
 
-    bot_username = getattr(getattr(client, "me", None), "username", None) or "iMoviesAutoFilterBot"
+    bot_info = getattr(client, "me", None)
+    if not bot_info or not getattr(bot_info, "username", None):
+        try:
+            bot_info = await client.get_me()
+            client.me = bot_info
+        except Exception:
+            pass
+    bot_username = getattr(bot_info, "username", None) or ""
 
     lines = [
         f"🌟 **DAILY RELEASES REPORT — {today_str}**\n",
