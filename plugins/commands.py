@@ -50,6 +50,24 @@ async def start(client, message):
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
         await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
+
+    # Force-Subscription Check: Prompts users before both plain /start and file delivery
+    if (AUTH_CHANNELS or AUTH_CHANNEL) and not await is_subscribed(client, message):
+        from utils import get_missing_auth_channels, build_auth_channels_markup
+        missing = await get_missing_auth_channels(client, message.from_user.id)
+        reply_markup = await build_auth_channels_markup(
+            client,
+            missing,
+            retry_payload=message.command[1] if len(message.command) > 1 else "subscribe"
+        )
+        await client.send_message(
+            chat_id=message.from_user.id,
+            text="**Please Join Our Official Updates Channel(s) to use this Bot!**\n\n*If you sent a join request, click 🔄 Try Again to get your file.*",
+            reply_markup=reply_markup,
+            parse_mode=enums.ParseMode.MARKDOWN
+        )
+        return
+
     if len(message.command) != 2:
         buttons = [[
             InlineKeyboardButton('➕↖️ Add Me To Your Groups ↗️➕', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
@@ -71,21 +89,6 @@ async def start(client, message):
             caption=script.START_TXT.format(message.from_user.mention, temp.U_NAME, temp.B_NAME),
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML
-        )
-        return
-    if (AUTH_CHANNELS or AUTH_CHANNEL) and not await is_subscribed(client, message):
-        from utils import get_missing_auth_channels, build_auth_channels_markup
-        missing = await get_missing_auth_channels(client, message.from_user.id)
-        reply_markup = await build_auth_channels_markup(
-            client,
-            missing,
-            retry_payload=message.command[1] if len(message.command) > 1 else "subscribe"
-        )
-        await client.send_message(
-            chat_id=message.from_user.id,
-            text="**Please Join Our Official Updates Channel(s) to use this Bot!**\n\n*If you sent a join request, click 🔄 Try Again to get your file.*",
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.MARKDOWN
         )
         return
     if len(message.command) == 2 and message.command[1] in ["subscribe", "error", "okay", "help"]:
@@ -1001,3 +1004,52 @@ async def new_releases_secondary(bot, message):
         "👇 Click below to open releases with filters & trailer previews:",
         reply_markup=InlineKeyboardMarkup(btn),
     )
+
+
+@Client.on_message(filters.command(["check_auth", "auth_status"]) & filters.user(ADMINS))
+async def check_auth_status(bot: Client, message: Message):
+    from utils import get_auth_targets
+    targets = get_auth_targets()
+    if not targets:
+        return await message.reply_text("⚠️ No `AUTH_CHANNELS` configured in environment.")
+
+    report = ["🔍 **Force-Sub Authentication Status:**\n"]
+    report.append(f"👤 **Testing Account ID:** `{message.from_user.id}` (@{message.from_user.username or 'None'})")
+    report.append(f"👑 **Admin Bypass Active:** `{'Yes (Admins skip force-sub by default)' if not FORCE_SUB_CHECK_ADMINS else 'No (Enforced on Admins too)'}`\n")
+
+    for t in targets:
+        ref = t.get("ref")
+        url = t.get("url")
+        report.append(f"📢 **Channel Target:** `{ref}`")
+        report.append(f"🔗 **Invite URL:** {url or 'Not set'}")
+
+        # Check bot admin status in target channel
+        chat_title = "Unknown"
+        bot_is_admin = False
+        try:
+            chat = await bot.get_chat(ref)
+            chat_title = chat.title or "Unknown"
+            bot_member = await bot.get_chat_member(ref, "me")
+            bot_is_admin = bot_member.status in (enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER)
+            report.append(f"• **Channel Title:** `{chat_title}`")
+            report.append(f"• **Bot Admin Rights:** `{'✅ Admin' if bot_is_admin else '❌ Not Admin (Please promote Bot to Admin!)'}`")
+        except Exception as exc:
+            report.append(f"• **Bot Admin Check:** `❌ {exc}`")
+
+        # Check user membership
+        try:
+            user_member = await bot.get_chat_member(ref, message.from_user.id)
+            report.append(f"• **Your Channel Status:** `{user_member.status.name}`")
+        except Exception as exc:
+            report.append(f"• **Your Channel Status:** `❌ {exc}`")
+
+        # Check DB join request
+        chat_id = ref if isinstance(ref, int) else None
+        if chat_id:
+            has_db_req = await db.find_join_req(message.from_user.id, chat_id)
+            report.append(f"• **DB Join Request:** `{'✅ Found in DB' if has_db_req else '❌ Not in DB'}`")
+
+        report.append("")
+
+    report.append("💡 *Tip: Test with a non-admin Telegram account that has left the channel to verify the prompt!*")
+    await message.reply_text("\n".join(report))

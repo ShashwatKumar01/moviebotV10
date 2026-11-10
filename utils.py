@@ -137,9 +137,9 @@ async def is_subscribed_to_channel(bot, user_id, target):
 
     return False
 
-async def get_missing_auth_channels(bot, user_id):
-    from info import ADMINS
-    if user_id in ADMINS:
+async def get_missing_auth_channels(bot, user_id, check_admin=False):
+    from info import ADMINS, FORCE_SUB_CHECK_ADMINS
+    if user_id in ADMINS and not (check_admin or FORCE_SUB_CHECK_ADMINS):
         return []
     targets = get_auth_targets()
     if not targets:
