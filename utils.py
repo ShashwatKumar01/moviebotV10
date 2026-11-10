@@ -101,24 +101,10 @@ def get_auth_targets():
     return targets
 
 async def is_subscribed_to_channel(bot, user_id, target):
-    # uses local has_secondary_join_req
     ref = target.get("ref")
     if ref is None:
         return True
 
-    # 1. Direct membership check via Pyrogram
-    try:
-        user = await bot.get_chat_member(ref, user_id)
-        if user.status not in (enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED):
-            return True
-        if user.status == enums.ChatMemberStatus.BANNED:
-            return False
-    except UserNotParticipant:
-        pass
-    except Exception:
-        pass
-
-    # 2. Check if join request exists (immediate authorization upon request)
     chat_id = None
     if isinstance(ref, int):
         chat_id = ref
@@ -129,6 +115,31 @@ async def is_subscribed_to_channel(bot, user_id, target):
         except Exception:
             pass
 
+    # 1. Direct membership check via Pyrogram
+    try:
+        user = await bot.get_chat_member(ref, user_id)
+        if user.status not in (enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED):
+            return True
+        if user.status in (enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED):
+            # User explicitly left the channel or was banned: purge stale join request
+            if chat_id:
+                _SECONDARY_JOIN_REQUESTS.get(int(user_id), set()).discard(int(chat_id))
+                try:
+                    await db.req.delete_many({
+                        "$or": [
+                            {"id": int(user_id), "chat_id": int(chat_id)},
+                            {"user_id": int(user_id), "chat_id": int(chat_id)},
+                        ]
+                    })
+                except Exception:
+                    pass
+            return False
+    except UserNotParticipant:
+        pass
+    except Exception:
+        pass
+
+    # 2. Check if pending join request exists
     if chat_id:
         if has_secondary_join_req(user_id, chat_id):
             return True

@@ -160,7 +160,16 @@ async def is_subscribed_to_target(
         m = await client.get_chat_member(chat_ref, user_id)
         if m.status not in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
             return True
-        if m.status == ChatMemberStatus.BANNED:
+        if m.status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
+            # User explicitly left or is banned: purge stale join request
+            cid = await get_chat_id_for_target(client, target)
+            if cid:
+                _join_requests.get(user_id, {}).pop(cid, None)
+                if db:
+                    try:
+                        await db.join_reqs.delete_many({"$or": [{"user_id": user_id, "chat_id": cid}, {"id": user_id, "chat_id": cid}]})
+                    except Exception:
+                        pass
             return False
     except UserNotParticipant:
         pass

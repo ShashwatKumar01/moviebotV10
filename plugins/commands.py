@@ -5,7 +5,7 @@ import asyncio
 from Script import script
 from pyrogram import Client, filters, enums
 from pyrogram.errors import ChatAdminRequired, FloodWait
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from database.ia_filterdb import Media, get_file_details, unpack_new_file_id
 from database.users_chats_db import db
 from info import *
@@ -1007,7 +1007,7 @@ async def new_releases_secondary(bot, message):
 
 
 @Client.on_message(filters.command(["check_auth", "auth_status"]) & filters.user(ADMINS))
-async def check_auth_status(bot: Client, message: Message):
+async def check_auth_status(bot, message):
     from utils import get_auth_targets
     targets = get_auth_targets()
     if not targets:
