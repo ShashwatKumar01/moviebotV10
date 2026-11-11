@@ -368,13 +368,9 @@ async def render_selected_title(
             back_payload=f"back_t:{query_key}:{data.get('title_page', 1)}"
         )
         fsub_notice = (
-            "\n\n━━━━━━━━━━━━━━━━━━━━━\n"
-            "⚠️ **Channel Join Required to Get Files!**\n"
-            f"Please join our updates channel below to unlock files for **{selected['title']}**.\n\n"
-            "⚠️ **फाइल्स डाउनलोड करने के लिए चैनल जॉइन करना अनिवार्य है!**\n"
-            f"**{selected['title']}** के डाउनलोड बटन पाने के लिए नीचे दिए गए चैनल को जॉइन करें।\n\n"
-            "👉 *After joining or requesting to join, tap* **🔄 Refresh / Try Again**!\n"
-            "👉 *जॉइन करने के बाद फाइल्स पाने के लिए* **🔄 Refresh / Try Again** *पर क्लिक करें!*"
+            "\n\n⚠️ **Please join our channel below to get download links!**\n"
+            "⚠️ **डाउनलोड लिंक पाने के लिए नीचे दिए गए चैनल को जॉइन करें!**\n"
+            "👉 *Tap* **🔄 Refresh / Try Again** *after joining.*"
         )
         full_caption = caption + fsub_notice
         photo_caption = full_caption if len(full_caption) <= 1020 else (full_caption[:1017] + "...")

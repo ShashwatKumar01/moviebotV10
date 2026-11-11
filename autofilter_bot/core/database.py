@@ -81,8 +81,8 @@ class Database:
         except Exception as exc:
             logger.warning("Error saving join request for user %s: %s", user_id, exc)
 
-    async def has_join_request(self, user_id: int, chat_id: int, max_age_seconds: int = 86400 * 3) -> bool:
-        """Check if user has an active/pending join request for this chat."""
+    async def has_join_request(self, user_id: int, chat_id: int, max_age_seconds: int = 300) -> bool:
+        """Check if user has an active/pending join request for this chat (default 5 min TTL)."""
         try:
             doc = await self.join_reqs.find_one({
                 "$or": [
@@ -100,7 +100,10 @@ class Database:
                 if age > max_age_seconds:
                     await self.join_reqs.delete_one({"_id": doc["_id"]})
                     return False
-            return True
+                return True
+            # Legacy or un-timestamped record: purge it
+            await self.join_reqs.delete_one({"_id": doc["_id"]})
+            return False
         except Exception:
             return False
 

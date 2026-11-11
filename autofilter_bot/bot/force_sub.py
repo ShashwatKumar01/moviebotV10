@@ -57,16 +57,21 @@ def record_join_request(user_id: int, chat_id: int, db: Database | None = None) 
             pass
 
 
-async def has_join_request(user_id: int, chat_id: int, db: Database | None = None) -> bool:
-    """Check if a join request is on record in memory or in DB."""
+async def has_join_request(user_id: int, chat_id: int, db: Database | None = None, max_age_seconds: int = 300) -> bool:
+    """Check if a join request is on record in memory or in DB within TTL (default 5 min)."""
     uid = int(user_id)
     cid = int(chat_id)
-    if cid in _join_requests.get(uid, {}):
-        return True
+    now = _now_ts()
+    ts = _join_requests.get(uid, {}).get(cid)
+    if ts is not None:
+        if (now - ts) <= max_age_seconds:
+            return True
+        else:
+            _join_requests.get(uid, {}).pop(cid, None)
     if db:
-        found = await db.has_join_request(uid, cid)
+        found = await db.has_join_request(uid, cid, max_age_seconds=max_age_seconds)
         if found:
-            _join_requests.setdefault(uid, {})[cid] = _now_ts()
+            _join_requests.setdefault(uid, {})[cid] = now
             return True
     return False
 
@@ -157,30 +162,40 @@ async def is_subscribed_to_target(
     if chat_ref is None:
         return True
 
+    cid = await get_chat_id_for_target(client, target)
+    cid_int = int(cid) if cid else None
+    uid_int = int(user_id)
+
+    async def _purge_consumed_req() -> None:
+        if cid_int:
+            _join_requests.get(uid_int, {}).pop(cid_int, None)
+            if db:
+                try:
+                    await db.join_reqs.delete_many({"$or": [{"user_id": uid_int, "chat_id": cid_int}, {"id": uid_int, "chat_id": cid_int}]})
+                except Exception:
+                    pass
+            try:
+                from database.users_chats_db import db as legacy_db
+                if legacy_db and getattr(legacy_db, "req", None):
+                    await legacy_db.req.delete_many({"$or": [{"id": uid_int, "chat_id": cid_int}, {"user_id": uid_int, "chat_id": cid_int}]})
+            except Exception:
+                pass
+            try:
+                from utils import _SECONDARY_JOIN_REQUESTS
+                _SECONDARY_JOIN_REQUESTS.get(uid_int, {}).pop(cid_int, None)
+            except Exception:
+                pass
+
     try:
         m = await client.get_chat_member(chat_ref, user_id)
         if m.status not in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
-            # User is an active member: purge consumed join request so that if they leave later,
-            # they must re-join
-            cid = await get_chat_id_for_target(client, target)
-            if cid:
-                _join_requests.get(user_id, {}).pop(cid, None)
-                if db:
-                    try:
-                        await db.join_reqs.delete_many({"$or": [{"user_id": user_id, "chat_id": cid}, {"id": user_id, "chat_id": cid}]})
-                    except Exception:
-                        pass
+            # User is an active member in channel: purge consumed join request
+            # so that if they leave later, they must re-join
+            await _purge_consumed_req()
             return True
         if m.status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
             # User explicitly left or is banned: purge stale join request
-            cid = await get_chat_id_for_target(client, target)
-            if cid:
-                _join_requests.get(user_id, {}).pop(cid, None)
-                if db:
-                    try:
-                        await db.join_reqs.delete_many({"$or": [{"user_id": user_id, "chat_id": cid}, {"id": user_id, "chat_id": cid}]})
-                    except Exception:
-                        pass
+            await _purge_consumed_req()
             return False
     except UserNotParticipant:
         pass
@@ -191,8 +206,10 @@ async def is_subscribed_to_target(
             if LazyPrincessBot and getattr(LazyPrincessBot, "is_connected", False):
                 m = await LazyPrincessBot.get_chat_member(chat_ref, user_id)
                 if m.status not in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
+                    await _purge_consumed_req()
                     return True
                 if m.status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
+                    await _purge_consumed_req()
                     return False
         except Exception:
             pass
@@ -200,9 +217,8 @@ async def is_subscribed_to_target(
     except Exception:
         pass
 
-    # Not joined yet: check if user has a pending join request
-    cid = await get_chat_id_for_target(client, target)
-    if cid and await has_join_request(user_id, cid, db):
+    # Not joined yet: check if user has an active pending join request within 5 minutes
+    if cid_int and await has_join_request(uid_int, cid_int, db, max_age_seconds=300):
         return True
 
     return False
@@ -314,13 +330,14 @@ async def build_force_sub_keyboard(
 ) -> InlineKeyboardMarkup:
     """Create join buttons for all missing channels + Refresh / Try Again callback."""
     rows: list[list[InlineKeyboardButton]] = []
+    is_multi = len(missing) > 1
 
-    for t in missing:
+    for idx, t in enumerate(missing, start=1):
         url = await get_target_url(client, t)
         if not url or not url.strip().startswith(("http://", "https://", "tg://")) or " " in url.strip():
             continue
-        title = await get_target_title(client, t)
-        rows.append([InlineKeyboardButton(f"📢 Join {title}", url=url.strip())])
+        btn_label = f"📢 Join Channel {idx}" if is_multi else "📢 Join Channel"
+        rows.append([InlineKeyboardButton(btn_label, url=url.strip())])
 
     clean_payload = (retry_payload or "").strip()
     cb_data = f"fsub_try:{clean_payload}" if clean_payload else "fsub_try:home"

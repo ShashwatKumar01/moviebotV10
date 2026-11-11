@@ -60,7 +60,7 @@ _SECONDARY_JOIN_REQUESTS: dict = {}
 def record_secondary_join_req(user_id: int, chat_id: int) -> None:
     _SECONDARY_JOIN_REQUESTS.setdefault(int(user_id), {})[int(chat_id)] = _time.time()
 
-def has_secondary_join_req(user_id: int, chat_id: int, max_age_seconds: float = 1800) -> bool:
+def has_secondary_join_req(user_id: int, chat_id: int, max_age_seconds: float = 300) -> bool:
     ts = (_SECONDARY_JOIN_REQUESTS.get(int(user_id)) or {}).get(int(chat_id))
     if ts is None:
         return False
@@ -203,7 +203,7 @@ async def build_auth_channels_markup(bot, missing_targets, retry_payload=None):
     from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     from utils import temp
     buttons = []
-    for t in missing_targets:
+    for idx, t in enumerate(missing_targets, start=1):
         url = t.get("url")
         if not url and t.get("ref"):
             for client_app in (bot, getattr(temp, "PRIMARY_APP", None)):
@@ -220,21 +220,8 @@ async def build_auth_channels_markup(bot, missing_targets, retry_payload=None):
                     pass
         if not url or not str(url).startswith(("http://", "https://", "tg://")):
             continue
-        title = "Updates Channel"
-        try:
-            for client_app in (bot, getattr(temp, "PRIMARY_APP", None)):
-                if not client_app or not getattr(client_app, "is_connected", False):
-                    continue
-                try:
-                    chat = await client_app.get_chat(t["ref"])
-                    if getattr(chat, "title", None):
-                        title = chat.title
-                        break
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        buttons.append([InlineKeyboardButton(f"🤖 Join {title}", url=url)])
+        btn_label = f"📢 Join Channel {idx}" if len(missing_targets) > 1 else "📢 Join Channel"
+        buttons.append([InlineKeyboardButton(btn_label, url=url)])
 
     if retry_payload and retry_payload != "subscribe":
         clean_fid = retry_payload
