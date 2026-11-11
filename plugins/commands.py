@@ -74,10 +74,25 @@ async def start(client, message):
                 missing,
                 retry_payload=retry_p
             )
-            intro = "To use this bot, please join our updates channel." if len(missing) == 1 else f"To use this bot, please join all {len(missing)} channels below."
+            if len(missing) == 1:
+                intro = (
+                    "⚠️ **Please Join Our Official Updates Channel to get your files!**\n"
+                    "*If you sent a join request, click 🔄 Try Again to get your files.*\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━\n"
+                    "⚠️ **फाइल पाने के लिए कृपया हमारे ऑफिशियल चैनल को जॉइन करें!**\n"
+                    "*अगर आपने जॉइन रिक्वेस्ट भेज दी है, तो 🔄 Try Again पर क्लिक करें।*"
+                )
+            else:
+                intro = (
+                    f"⚠️ **Please join all {len(missing)} channels below to get your files!**\n"
+                    "*If you sent a join request, click 🔄 Try Again.*\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"⚠️ **फाइल पाने के लिए कृपया नीचे दिए गए सभी {len(missing)} चैनलों को जॉइन करें!**\n"
+                    "*जॉइन करने के बाद 🔄 Try Again पर क्लिक करें।*"
+                )
             await client.send_message(
                 chat_id=message.from_user.id,
-                text=f"**{intro}**\n\n*After joining or sending a join request, tap 🔄 Try Again to get your files.*",
+                text=intro,
                 reply_markup=reply_markup,
                 parse_mode=enums.ParseMode.MARKDOWN
             )

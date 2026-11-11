@@ -352,23 +352,56 @@ async def render_selected_title(
     share_url = f"https://t.me/share/url?url={urllib.parse.quote(target_link, safe='')}&text={urllib.parse.quote(share_text)}"
 
     caption = format_autofilter_caption(meta, file_count=len(files), is_admin=is_admin)
-    keyboard = build_autofilter_keyboard(
-        files=files,
-        file_bot_username=file_bot,
-        page=1,
-        page_size=8,
-        query_key=query_key,
-        title_page=data.get("title_page", 1),
-        trailer_url=meta.trailer_url,
-        is_admin=is_admin,
-        share_url=share_url,
-    )
+
+    # Force-sub check in PM: Check when movie banner with details appears
+    is_auth = True
+    if query.message.chat.type == ChatType.PRIVATE and config.auth_channels and user:
+        is_auth = await is_user_authorized(client, user.id, config, db)
+
+    if not is_auth:
+        from .force_sub import get_missing_force_sub, build_force_sub_keyboard
+        missing = await get_missing_force_sub(client, user.id, config, db)
+        keyboard = await build_force_sub_keyboard(
+            client,
+            missing,
+            retry_payload=f"sel_t:{query_key}:{group_idx}",
+            back_payload=f"back_t:{query_key}:{data.get('title_page', 1)}"
+        )
+        fsub_notice = (
+            "\n\n━━━━━━━━━━━━━━━━━━━━━\n"
+            "⚠️ **Channel Join Required to Get Files!**\n"
+            f"Please join our updates channel below to unlock files for **{selected['title']}**.\n\n"
+            "⚠️ **फाइल्स डाउनलोड करने के लिए चैनल जॉइन करना अनिवार्य है!**\n"
+            f"**{selected['title']}** के डाउनलोड बटन पाने के लिए नीचे दिए गए चैनल को जॉइन करें।\n\n"
+            "👉 *After joining or requesting to join, tap* **🔄 Refresh / Try Again**!\n"
+            "👉 *जॉइन करने के बाद फाइल्स पाने के लिए* **🔄 Refresh / Try Again** *पर क्लिक करें!*"
+        )
+        full_caption = caption + fsub_notice
+        photo_caption = full_caption if len(full_caption) <= 1020 else (full_caption[:1017] + "...")
+    else:
+        keyboard = build_autofilter_keyboard(
+            files=files,
+            file_bot_username=file_bot,
+            page=1,
+            page_size=8,
+            query_key=query_key,
+            title_page=data.get("title_page", 1),
+            trailer_url=meta.trailer_url,
+            is_admin=is_admin,
+            share_url=share_url,
+        )
+        photo_caption = caption if len(caption) <= 1020 else (caption[:1017] + "...")
 
     photo = meta.poster_url or config.default_thumbnail_path
     chat_id = query.message.chat.id
 
-    # Telegram photo captions are limited to 1024 characters. Truncate safely for photo sends.
-    photo_caption = caption if len(caption) <= 1020 else (caption[:1017] + "...")
+    # If the current message is already a photo message (e.g. Refresh tapped), update in-place without vanishing
+    if getattr(query.message, "photo", None):
+        try:
+            await query.message.edit_caption(caption=photo_caption, reply_markup=keyboard)
+            return
+        except RPCError:
+            pass
 
     rendered = False
     if photo and (photo.startswith("http") or os.path.exists(photo)):
@@ -389,10 +422,10 @@ async def render_selected_title(
     if not rendered:
         # Fallback to text edit or send
         try:
-            await query.message.edit_text(caption, reply_markup=keyboard)
+            await query.message.edit_text(photo_caption, reply_markup=keyboard)
         except Exception:
             try:
-                await client.send_message(chat_id, text=caption, reply_markup=keyboard)
+                await client.send_message(chat_id, text=photo_caption, reply_markup=keyboard)
             except Exception as exc:
                 logger.error("Failed to render Step 2 even with text: %s", exc)
 
@@ -411,13 +444,6 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
         query_text = (message.text or "").strip()
         if len(query_text) < 2 or query_text.startswith(("/", "!", ".", "#", "-")):
             return
-
-        # Force-sub check in PM (exact DiskwalaDl architecture)
-        if message.chat.type == ChatType.PRIVATE and config.auth_channels:
-            if not await is_user_authorized(client, message.from_user.id, config, db):
-                await send_force_sub_prompt(client, message, config, db, retry_payload=query_text)
-                return
-
         await process_search_query(client, message, query_text, config, db)
 
     # -------------------------------------------------------------

@@ -44,7 +44,7 @@ class Database:
             ),
         )
     
-    async def find_join_req(self, id, chat_id=None, max_age_seconds=14400):
+    async def find_join_req(self, id, chat_id=None, max_age_seconds=1800):
         filt = {"$or": [{"id": int(id)}, {"user_id": int(id)}]}
         if chat_id:
             filt = {

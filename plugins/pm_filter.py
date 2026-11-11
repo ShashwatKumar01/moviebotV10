@@ -1627,9 +1627,9 @@ async def cb_handler(client: Client, query: CallbackQuery):
     elif query.data == "check_join":
         try:
             if (AUTH_CHANNELS or AUTH_CHANNEL) and not await is_subscribed(client, query):
-                await query.answer("⚠️ You have not joined our updates channel yet! Please join or request to join first.", show_alert=True)
+                await query.answer("⚠️ Please join our updates channel first!\nकृपया पहले हमारे चैनल को जॉइन करें!", show_alert=True)
                 return
-            await query.answer("✅ Verified! Welcome to iMovies!", show_alert=False)
+            await query.answer("✅ Verified! Welcome to iMovies!\nवेरिफाई हो गया! iMovies में स्वागत है!", show_alert=False)
         except Exception:
             pass
         buttons = [[
@@ -1656,7 +1656,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
     elif query.data.startswith("checksub"):
         try:
             if (AUTH_CHANNELS or AUTH_CHANNEL) and not await is_subscribed(client, query):
-                await query.answer("⚠️ You have not joined our updates channel yet! Please join or request to join first.", show_alert=True)
+                await query.answer("⚠️ Please join our updates channel first!\nकृपया पहले हमारे चैनल को जॉइन करें!", show_alert=True)
                 return
         except Exception:
             pass

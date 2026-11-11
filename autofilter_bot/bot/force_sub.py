@@ -160,6 +160,16 @@ async def is_subscribed_to_target(
     try:
         m = await client.get_chat_member(chat_ref, user_id)
         if m.status not in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
+            # User is an active member: purge consumed join request so that if they leave later,
+            # they must re-join
+            cid = await get_chat_id_for_target(client, target)
+            if cid:
+                _join_requests.get(user_id, {}).pop(cid, None)
+                if db:
+                    try:
+                        await db.join_reqs.delete_many({"$or": [{"user_id": user_id, "chat_id": cid}, {"id": user_id, "chat_id": cid}]})
+                    except Exception:
+                        pass
             return True
         if m.status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
             # User explicitly left or is banned: purge stale join request
@@ -300,8 +310,9 @@ async def build_force_sub_keyboard(
     client: Client,
     missing: list[dict[str, Any]],
     retry_payload: str = "",
+    back_payload: str = "",
 ) -> InlineKeyboardMarkup:
-    """Create join buttons for all missing channels + Try Again callback."""
+    """Create join buttons for all missing channels + Refresh / Try Again callback."""
     rows: list[list[InlineKeyboardButton]] = []
 
     for t in missing:
@@ -311,9 +322,12 @@ async def build_force_sub_keyboard(
         title = await get_target_title(client, t)
         rows.append([InlineKeyboardButton(f"📢 Join {title}", url=url.strip())])
 
-    clean_payload = (retry_payload or "").strip()[:40]
+    clean_payload = (retry_payload or "").strip()
     cb_data = f"fsub_try:{clean_payload}" if clean_payload else "fsub_try:home"
-    rows.append([InlineKeyboardButton("🔄 Try Again", callback_data=cb_data)])
+    rows.append([InlineKeyboardButton("🔄 Refresh / Try Again", callback_data=cb_data)])
+
+    if back_payload:
+        rows.append([InlineKeyboardButton("🔙 Back to Titles", callback_data=back_payload)])
 
     return InlineKeyboardMarkup(rows)
 
@@ -325,7 +339,7 @@ async def send_force_sub_prompt(
     db: Database,
     retry_payload: str = "",
 ) -> None:
-    """Send attractive force-sub alert message when user is not authorized."""
+    """Send bilingual force-sub alert message when user is not authorized."""
     user = message.from_user
     name = user.first_name if user else "Friend"
     missing = await get_missing_force_sub(client, user.id, config, db)
@@ -334,9 +348,13 @@ async def send_force_sub_prompt(
 
     text = (
         f"👋 **Hello {name}!**\n\n"
-        f"⚠️ **You must join our updates channel to use this bot!**\n\n"
-        f"Please click the button(s) below to join / request to join, "
-        f"then click **🔄 Try Again** to continue."
+        "⚠️ **You must join our updates channel to use this bot!**\n"
+        "Please click the button below to join or send a join request, "
+        "then click **🔄 Refresh / Try Again** to continue.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "⚠️ **इस बॉट का उपयोग करने के लिए हमारे चैनल को जॉइन करना आवश्यक है!**\n"
+        "कृपया नीचे दिए गए बटन से चैनल जॉइन करें या रिक्वेस्ट भेजें, "
+        "फिर आगे बढ़ने के लिए **🔄 Refresh / Try Again** पर क्लिक करें।"
     )
 
     photo = config.default_thumbnail_path
@@ -372,10 +390,13 @@ async def send_force_sub_prompt_callback(
     keyboard = await build_force_sub_keyboard(client, missing, retry_payload=retry_payload)
     text = (
         f"👋 **Hello {name}!**\n\n"
-        f"⚠️ **Access Restricted — Channel Join Required!**\n\n"
-        f"To view details and download files for this movie / series, "
-        f"please join our channel(s) below, then tap **🔄 Try Again**!\n\n"
-        f"*(Join request approval is instant)*"
+        "⚠️ **Access Restricted — Channel Join Required!**\n"
+        "To view details and download files for this movie / series, "
+        "please join our channel(s) below, then tap **🔄 Refresh / Try Again**!\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "⚠️ **फाइल्स डाउनलोड करने के लिए चैनल जॉइन करना अनिवार्य है!**\n"
+        "डाउनलोड लिंक पाने के लिए कृपया नीचे दिए गए चैनल को जॉइन करें, "
+        "फिर **🔄 Refresh / Try Again** पर क्लिक करें!"
     )
 
     try:
@@ -388,7 +409,7 @@ async def send_force_sub_prompt_callback(
 
 
 def register_force_sub_handlers(app: Client, config: Config, db: Database) -> None:
-    """Register live ChatJoinRequest listener and Try Again callback."""
+    """Register live ChatJoinRequest listener, member updates, and Try Again callback."""
 
     @app.on_chat_join_request()
     async def cb_chat_join_request(client: Client, join_request: ChatJoinRequest) -> None:
@@ -403,6 +424,29 @@ def register_force_sub_handlers(app: Client, config: Config, db: Database) -> No
         except Exception as exc:
             logger.warning("Error in force_sub_join_request: %s", exc)
 
+    @app.on_chat_member_updated()
+    async def cb_chat_member_updated(client: Client, update) -> None:
+        """Purge join request when user leaves, joins, or is banned."""
+        try:
+            user = getattr(update, "from_user", None)
+            new_member = getattr(update, "new_chat_member", None)
+            user_id = getattr(getattr(new_member, "user", None), "id", None) or getattr(user, "id", None)
+            chat = getattr(update, "chat", None)
+            if not user_id or not chat:
+                return
+            _join_requests.get(int(user_id), {}).pop(int(chat.id), None)
+            if db:
+                await db.join_reqs.delete_many({
+                    "$or": [
+                        {"id": int(user_id), "chat_id": int(chat.id)},
+                        {"user_id": int(user_id), "chat_id": int(chat.id)},
+                    ]
+                })
+            logger.info("Cleared join request for %s in chat %s on member update (%s)",
+                        user_id, chat.id, getattr(new_member, "status", "unknown"))
+        except Exception as exc:
+            logger.warning("Error in cb_chat_member_updated: %s", exc)
+
     @app.on_callback_query(filters.regex(r"^(fsub_try:|check_join)"))
     async def cb_fsub_try(client: Client, query: CallbackQuery) -> None:
         user = query.from_user
@@ -413,7 +457,10 @@ def register_force_sub_handlers(app: Client, config: Config, db: Database) -> No
         if missing:
             names = ", ".join([await get_target_title(client, t) for t in missing])
             try:
-                await query.answer(f"❌ You have not joined yet! Please join: {names}", show_alert=True)
+                await query.answer(
+                    f"❌ You have not joined yet!\nकृपया पहले हमारे चैनल को जॉइन करें: {names}",
+                    show_alert=True
+                )
             except Exception:
                 pass
             try:
@@ -426,7 +473,7 @@ def register_force_sub_handlers(app: Client, config: Config, db: Database) -> No
 
         # User is verified!
         try:
-            await query.answer("✅ Verified successfully!", show_alert=False)
+            await query.answer("✅ Verified! Loading results...\nवेरिफाई हो गया! फाइल्स लोड हो रही हैं...", show_alert=False)
         except Exception:
             pass
         payload = query.data.split(":", 1)[1].strip() if ":" in query.data else "home"
@@ -439,17 +486,16 @@ def register_force_sub_handlers(app: Client, config: Config, db: Database) -> No
             await render_selected_title(client, query, query_key, group_idx, config, db)
             return
 
-        try:
-            await query.message.delete()
-        except Exception:
-            pass
-
         if payload and payload != "home":
             # Resume search query
             from .autofilter import process_search_query
             await process_search_query(client, query.message, payload, config, db)
         else:
-            await client.send_message(
-                query.message.chat.id,
-                "🎉 **Welcome! You are now verified.**\n\nSend any movie or web series name to search!",
-            )
+            try:
+                await query.message.edit_text(
+                    "🎉 **Welcome! You are now verified.**\nSend any movie or web series name to search!\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━\n"
+                    "🎉 **बधाई हो! आप वेरिफाई हो चुके हैं।**\nअब आप किसी भी मूवी या वेब सीरीज का नाम भेजकर सर्च कर सकते हैं!"
+                )
+            except Exception:
+                pass

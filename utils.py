@@ -60,7 +60,7 @@ _SECONDARY_JOIN_REQUESTS: dict = {}
 def record_secondary_join_req(user_id: int, chat_id: int) -> None:
     _SECONDARY_JOIN_REQUESTS.setdefault(int(user_id), {})[int(chat_id)] = _time.time()
 
-def has_secondary_join_req(user_id: int, chat_id: int, max_age_seconds: float = 14400) -> bool:
+def has_secondary_join_req(user_id: int, chat_id: int, max_age_seconds: float = 1800) -> bool:
     ts = (_SECONDARY_JOIN_REQUESTS.get(int(user_id)) or {}).get(int(chat_id))
     if ts is None:
         return False
@@ -125,11 +125,24 @@ async def is_subscribed_to_channel(bot, user_id, target):
     try:
         user = await bot.get_chat_member(ref, user_id)
         if user.status not in (enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED):
+            # User is an active member in channel: purge consumed join request
+            # so that if they leave later, they must re-join
+            if chat_id:
+                _SECONDARY_JOIN_REQUESTS.get(int(user_id), {}).pop(int(chat_id), None)
+                try:
+                    await db.req.delete_many({
+                        "$or": [
+                            {"id": int(user_id), "chat_id": int(chat_id)},
+                            {"user_id": int(user_id), "chat_id": int(chat_id)},
+                        ]
+                    })
+                except Exception:
+                    pass
             return True
         if user.status in (enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED):
             # User explicitly left the channel or was banned: purge stale join request
             if chat_id:
-                _SECONDARY_JOIN_REQUESTS.get(int(user_id), set()).discard(int(chat_id))
+                _SECONDARY_JOIN_REQUESTS.get(int(user_id), {}).pop(int(chat_id), None)
                 try:
                     await db.req.delete_many({
                         "$or": [
