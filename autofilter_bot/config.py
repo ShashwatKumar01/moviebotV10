@@ -142,6 +142,8 @@ def load_primary_config(file_bot_username: str | None = None) -> Config | None:
             os.getenv("AUTH_CHANNELS", "").strip(),
             os.getenv("AUTH_CHANNEL", "").strip(),
             os.getenv("FORCE_SUB_CHANNELS", "").strip(),
+            os.getenv("FORCE_SUB_CHANNEL", "").strip(),
+            os.getenv("UPDATE_CHANNEL", "").strip(),
         ]
 
     auth_channels_list: list[int | str] = []
@@ -165,6 +167,7 @@ def load_primary_config(file_bot_username: str | None = None) -> Config | None:
         or os.getenv("FORCE_SUB_INVITE_URLS")
         or os.getenv("FORCE_SUB_INVITE_URL")
         or os.getenv("AUTH_CHANNEL_INVITE_URL")
+        or os.getenv("UPDATES_CHANNEL_LINK")
         or ""
     )
     auth_invites_list = [

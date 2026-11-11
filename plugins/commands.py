@@ -41,32 +41,47 @@ async def start(client, message):
             ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply(script.START_TXT.format(message.from_user.mention if message.from_user else message.chat.title, temp.U_NAME, temp.B_NAME), reply_markup=reply_markup)
-        await asyncio.sleep(2) # 😢 https://github.com/imoviesmagic/LazyPrincess/blob/master/plugins/p_ttishow.py#L17 😬 wait a bit, before checking.
+        await asyncio.sleep(2)
         if not await db.get_chat(message.chat.id):
-            total=await client.get_chat_members_count(message.chat.id)
-            await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"))       
+            try:
+                if LOG_CHANNEL:
+                    total = await client.get_chat_members_count(message.chat.id)
+                    await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"))
+            except Exception as exc:
+                logger.warning("Error logging group join to LOG_CHANNEL: %s", exc)
             await db.add_chat(message.chat.id, message.chat.title)
-        return 
-    if not await db.is_user_exist(message.from_user.id):
-        await db.add_user(message.from_user.id, message.from_user.first_name)
-        await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
+        return
 
-    # Force-Subscription Check: Prompts users before both plain /start and file delivery
+    try:
+        if not await db.is_user_exist(message.from_user.id):
+            await db.add_user(message.from_user.id, message.from_user.first_name)
+            if LOG_CHANNEL:
+                try:
+                    await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
+                except Exception as exc:
+                    logger.warning("Error logging PM user to LOG_CHANNEL: %s", exc)
+    except Exception as exc:
+        logger.warning("Error in user registration: %s", exc)
+
+    # Force-Subscription Check: Prompts users before both plain /start and file delivery (matches DiskwalaDl)
     if (AUTH_CHANNELS or AUTH_CHANNEL) and not await is_subscribed(client, message):
         from utils import get_missing_auth_channels, build_auth_channels_markup
         missing = await get_missing_auth_channels(client, message.from_user.id)
-        reply_markup = await build_auth_channels_markup(
-            client,
-            missing,
-            retry_payload=message.command[1] if len(message.command) > 1 else "subscribe"
-        )
-        await client.send_message(
-            chat_id=message.from_user.id,
-            text="**Please Join Our Official Updates Channel(s) to use this Bot!**\n\n*If you sent a join request, click 🔄 Try Again to get your file.*",
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.MARKDOWN
-        )
-        return
+        if missing:
+            retry_p = message.command[1] if len(message.command) > 1 else "subscribe"
+            reply_markup = await build_auth_channels_markup(
+                client,
+                missing,
+                retry_payload=retry_p
+            )
+            intro = "To use this bot, please join our updates channel." if len(missing) == 1 else f"To use this bot, please join all {len(missing)} channels below."
+            await client.send_message(
+                chat_id=message.from_user.id,
+                text=f"**{intro}**\n\n*After joining or sending a join request, tap 🔄 Try Again to get your files.*",
+                reply_markup=reply_markup,
+                parse_mode=enums.ParseMode.MARKDOWN
+            )
+            return
 
     if len(message.command) != 2:
         buttons = [[
@@ -403,8 +418,11 @@ async def start(client, message):
                 ]]
     lzzz = await client.send_message(chat_id = message.from_user.id, text=f"<b>⚠ <u>warning ⚠</u> </b>\n\n<b>ᴛʜɪꜱ ᴠɪᴅᴇᴏ / ꜰɪʟᴇ ᴡɪʟʟ ʙᴇ ᴅᴇʟᴇᴛᴇᴅ ɪɴ</b> <b><u>15 ᴍɪɴᴜᴛᴇꜱ</u> </b><b>(ᴅᴜᴇ ᴛᴏ ᴄᴏᴘʏʀɪɢʜᴛ ɪꜱꜱᴜᴇꜱ).</b>\n\n<b><i>📌 ᴘʟᴇᴀꜱᴇ ꜰᴏʀᴡᴀʀᴅ ᴛʜɪꜱ ᴠɪᴅᴇᴏ / ꜰɪʟᴇ ᴛᴏ ꜱᴏᴍᴇᴡʜᴇʀᴇ ᴇʟꜱᴇ ᴀɴᴅ ꜱᴛᴀʀᴛ ᴅᴏᴡɴʟᴏᴀᴅɪɴɢ ᴛʜᴇʀᴇ.</i></b>")
     await asyncio.sleep(900)
-    await lazy_file.delete()
-    await lzzz.edit_text("<b>ʏᴏᴜʀ ᴠɪᴅᴇᴏ / ꜰɪʟᴇ ɪꜱ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴅᴇʟᴇᴛᴇᴅ !!\n\nᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ʙᴜᴛᴛᴏɴ ᴛᴏ ɢᴇᴛ ʏᴏᴜʀ ᴅᴇʟᴇᴛᴇᴅ ᴠɪᴅᴇᴏ / ꜰɪʟᴇ 👇</b>",reply_markup=InlineKeyboardMarkup(btnl))
+    try:
+        await lazy_file.delete()
+        await lzzz.edit_text("<b>ʏᴏᴜʀ ᴠɪᴅᴇᴏ / ꜰɪʟᴇ ɪꜱ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴅᴇʟᴇᴛᴇᴅ !!\n\nᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ʙᴜᴛᴛᴏɴ ᴛᴏ ɢᴇᴛ ʏᴏᴜʀ ᴅᴇʟᴇᴛᴇᴅ ᴠɪᴅᴇᴏ / ꜰɪʟᴇ 👇</b>",reply_markup=InlineKeyboardMarkup(btnl))
+    except Exception:
+        pass
 
 
 @Client.on_message(filters.command('channels') & filters.user(ADMINS))

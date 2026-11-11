@@ -175,7 +175,17 @@ async def is_subscribed_to_target(
     except UserNotParticipant:
         pass
     except ChatAdminRequired:
-        logger.warning("Bot is not admin in Auth Channel %s", chat_ref)
+        logger.warning("Primary Bot is not admin in Auth Channel %s; trying secondary bot...", chat_ref)
+        try:
+            from lazybot import LazyPrincessBot
+            if LazyPrincessBot and getattr(LazyPrincessBot, "is_connected", False):
+                m = await LazyPrincessBot.get_chat_member(chat_ref, user_id)
+                if m.status not in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
+                    return True
+                if m.status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
+                    return False
+        except Exception:
+            pass
         return False
     except Exception:
         pass
@@ -212,10 +222,7 @@ async def is_user_authorized(
     config: Config,
     db: Database | None = None,
 ) -> bool:
-    """Check if user has satisfied all Auth Channels."""
-    force_check_admins = os.getenv("FORCE_SUB_CHECK_ADMINS", "True").strip().lower() in ("true", "1", "yes")
-    if user_id in config.admin_ids and not force_check_admins:
-        return True
+    """Check if user has satisfied all Auth Channels (matching DiskwalaDl)."""
     missing = await get_missing_force_sub(client, user_id, config, db)
     return len(missing) == 0
 
@@ -270,6 +277,19 @@ async def get_target_url(client: Client, target: dict[str, Any]) -> str:
             link = (await client.export_chat_invite_link(ref) or "").strip()
         except Exception:
             link = ""
+
+    if not link:
+        try:
+            from lazybot import LazyPrincessBot
+            if LazyPrincessBot and getattr(LazyPrincessBot, "is_connected", False):
+                chat = await LazyPrincessBot.get_chat(ref)
+                link = (getattr(chat, "invite_link", "") or "").strip()
+                if not link and getattr(chat, "username", None):
+                    link = f"https://t.me/{chat.username}"
+                if not link:
+                    link = (await LazyPrincessBot.export_chat_invite_link(ref) or "").strip()
+        except Exception:
+            pass
 
     if link:
         _force_sub_url_cache[raw] = link
@@ -383,7 +403,7 @@ def register_force_sub_handlers(app: Client, config: Config, db: Database) -> No
         except Exception as exc:
             logger.warning("Error in force_sub_join_request: %s", exc)
 
-    @app.on_callback_query(filters.regex(r"^fsub_try:"))
+    @app.on_callback_query(filters.regex(r"^(fsub_try:|check_join)"))
     async def cb_fsub_try(client: Client, query: CallbackQuery) -> None:
         user = query.from_user
         if not user:
@@ -392,17 +412,24 @@ def register_force_sub_handlers(app: Client, config: Config, db: Database) -> No
         missing = await get_missing_force_sub(client, user.id, config, db)
         if missing:
             names = ", ".join([await get_target_title(client, t) for t in missing])
-            await query.answer(f"❌ You have not joined yet! Please join: {names}", show_alert=True)
             try:
-                kb = await build_force_sub_keyboard(client, missing, retry_payload=query.data.split(":", 1)[1])
+                await query.answer(f"❌ You have not joined yet! Please join: {names}", show_alert=True)
+            except Exception:
+                pass
+            try:
+                raw_payload = query.data.split(":", 1)[1] if ":" in query.data else ""
+                kb = await build_force_sub_keyboard(client, missing, retry_payload=raw_payload)
                 await query.edit_message_reply_markup(reply_markup=kb)
             except Exception:
                 pass
             return
 
         # User is verified!
-        await query.answer("✅ Verified successfully!", show_alert=False)
-        payload = query.data.split(":", 1)[1].strip()
+        try:
+            await query.answer("✅ Verified successfully!", show_alert=False)
+        except Exception:
+            pass
+        payload = query.data.split(":", 1)[1].strip() if ":" in query.data else "home"
 
         if payload.startswith("sel_t:"):
             from .autofilter import render_selected_title

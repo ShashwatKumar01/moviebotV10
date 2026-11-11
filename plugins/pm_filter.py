@@ -1625,10 +1625,13 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await query.answer(url=f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}")
             
     elif query.data == "check_join":
-        if (AUTH_CHANNELS or AUTH_CHANNEL) and not await is_subscribed(client, query):
-            await query.answer("⚠️ You have not joined our updates channel yet! Please join or request to join first.", show_alert=True)
-            return
-        await query.answer("✅ Verified! Welcome to iMovies!", show_alert=False)
+        try:
+            if (AUTH_CHANNELS or AUTH_CHANNEL) and not await is_subscribed(client, query):
+                await query.answer("⚠️ You have not joined our updates channel yet! Please join or request to join first.", show_alert=True)
+                return
+            await query.answer("✅ Verified! Welcome to iMovies!", show_alert=False)
+        except Exception:
+            pass
         buttons = [[
             InlineKeyboardButton('➕↖️ Add Me To Your Groups ↗️➕', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
         ],
@@ -1651,13 +1654,20 @@ async def cb_handler(client: Client, query: CallbackQuery):
         except Exception:
             pass
     elif query.data.startswith("checksub"):
-        if (AUTH_CHANNELS or AUTH_CHANNEL) and not await is_subscribed(client, query):
-            await query.answer("Mere saamne jyada smart nhi banne ka 😒", show_alert=True)
-            return
+        try:
+            if (AUTH_CHANNELS or AUTH_CHANNEL) and not await is_subscribed(client, query):
+                await query.answer("⚠️ You have not joined our updates channel yet! Please join or request to join first.", show_alert=True)
+                return
+        except Exception:
+            pass
         ident, file_id = query.data.split("#")
         files_ = await get_file_details(file_id)
         if not files_:
-            return await query.answer('No such file exist.')
+            try:
+                await query.answer('No such file exist.', show_alert=True)
+            except Exception:
+                pass
+            return
         files = files_[0]
         title = files.file_name
         size = get_size(files.file_size)
@@ -1672,11 +1682,18 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 f_caption = f_caption
         if f_caption is None:
             f_caption = f"{title}"
-        await query.answer()
+        try:
+            await query.answer("Delivering your file...", show_alert=False)
+        except Exception:
+            pass
         # Create the inline keyboard button with callback_data
         button = InlineKeyboardButton('▶ Gen Stream / Download Link', callback_data=f'generate_stream_link:{file_id}')
         # Create the inline keyboard markup with the button
         keyboard = InlineKeyboardMarkup([[button]])
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
         await client.send_cached_media(
             chat_id=query.from_user.id,
             file_id=file_id,

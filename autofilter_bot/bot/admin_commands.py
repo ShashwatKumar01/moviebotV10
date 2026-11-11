@@ -25,6 +25,13 @@ def register_admin_commands(app: Client, config: Config, db: Database) -> None:
         if user:
             await db.save_user(user.id, user.username, user.first_name)
 
+        # Force-sub check in PM (matches DiskwalaDl)
+        if message.chat.type == ChatType.PRIVATE and config.auth_channels and user:
+            if not await is_user_authorized(client, user.id, config, db):
+                raw_retry = message.command[1].strip() if len(message.command) > 1 else ""
+                await send_force_sub_prompt(client, message, config, db, retry_payload=raw_retry)
+                return
+
         # Handle deep links like /start getfile-Kappi-Squad-S01, /start rel_movie_123, /start new
         if len(message.command) > 1:
             raw_param = message.command[1].strip()

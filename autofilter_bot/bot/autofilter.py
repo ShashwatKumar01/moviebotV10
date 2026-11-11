@@ -411,6 +411,13 @@ def register_autofilter(app: Client, config: Config, db: Database) -> None:
         query_text = (message.text or "").strip()
         if len(query_text) < 2 or query_text.startswith(("/", "!", ".", "#", "-")):
             return
+
+        # Force-sub check in PM (exact DiskwalaDl architecture)
+        if message.chat.type == ChatType.PRIVATE and config.auth_channels:
+            if not await is_user_authorized(client, message.from_user.id, config, db):
+                await send_force_sub_prompt(client, message, config, db, retry_payload=query_text)
+                return
+
         await process_search_query(client, message, query_text, config, db)
 
     # -------------------------------------------------------------

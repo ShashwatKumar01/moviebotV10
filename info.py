@@ -42,13 +42,15 @@ auth_channel = environ.get('AUTH_CHANNEL')
 auth_grp = environ.get('AUTH_GROUP')
 
 # Multiple Auth Channels support (Private & Public channels)
-# Priority: SECONDARY_AUTH_CHANNELS > AUTH_CHANNELS > FORCE_SUB_CHANNELS > AUTH_CHANNEL
+# Priority: SECONDARY_AUTH_CHANNELS > AUTH_CHANNELS > FORCE_SUB_CHANNELS > FORCE_SUB_CHANNEL > AUTH_CHANNEL > UPDATE_CHANNEL
 raw_channels = []
 _chosen_auth = (
     environ.get('SECONDARY_AUTH_CHANNELS', '').strip()
     or environ.get('AUTH_CHANNELS', '').strip()
     or environ.get('FORCE_SUB_CHANNELS', '').strip()
+    or environ.get('FORCE_SUB_CHANNEL', '').strip()
     or environ.get('AUTH_CHANNEL', '').strip()
+    or environ.get('UPDATE_CHANNEL', '').strip()
 )
 if _chosen_auth:
     for _part in _chosen_auth.replace('\n', ',').split(','):
@@ -72,6 +74,7 @@ raw_auth_invites = (
     or environ.get('FORCE_SUB_INVITE_URLS')
     or environ.get('FORCE_SUB_INVITE_URL')
     or environ.get('AUTH_CHANNEL_INVITE_URL')
+    or environ.get('UPDATES_CHANNEL_LINK')
     or ''
 )
 AUTH_CHANNEL_INVITE_URLS = [_u.strip() for _u in raw_auth_invites.replace('\n', ',').split(',') if _u.strip()]

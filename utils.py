@@ -6,7 +6,7 @@
 # for any error please contact me -> telegram@LazyDeveloperr or insta @LazyDeveloperr 
 # rip paid developers 🤣 - >> No need to buy paid source code while @LazyDeveloperr is here 😍😍
 import logging
-from pyrogram.errors import InputUserDeactivated, UserNotParticipant, FloodWait, UserIsBlocked, PeerIdInvalid
+from pyrogram.errors import InputUserDeactivated, UserNotParticipant, FloodWait, UserIsBlocked, PeerIdInvalid, ChatAdminRequired
 from info import *
 import asyncio
 import time as _time
@@ -143,11 +143,20 @@ async def is_subscribed_to_channel(bot, user_id, target):
     except UserNotParticipant:
         pass
     except ChatAdminRequired:
-        logger.warning(f"Bot is not admin in Auth Channel {ref}! Force-sub requires bot to be admin.")
-        return False
+        logger.warning(f"Bot is not admin in Auth Channel {ref}! Checking partner client...")
+        try:
+            from utils import temp
+            p_app = getattr(temp, "PRIMARY_APP", None)
+            if p_app and getattr(p_app, "is_connected", False):
+                u_p = await p_app.get_chat_member(ref, user_id)
+                if u_p.status not in (enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED):
+                    return True
+                if u_p.status in (enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED):
+                    return False
+        except Exception:
+            pass
     except Exception as exc:
         logger.warning(f"Error checking chat member for {user_id} in {ref}: {exc}")
-        return False
 
     # 2. Check if pending join request exists
     if chat_id:
@@ -159,9 +168,6 @@ async def is_subscribed_to_channel(bot, user_id, target):
     return False
 
 async def get_missing_auth_channels(bot, user_id, check_admin=False):
-    from info import ADMINS, FORCE_SUB_CHECK_ADMINS
-    if user_id in ADMINS and not (check_admin or FORCE_SUB_CHECK_ADMINS):
-        return []
     targets = get_auth_targets()
     if not targets:
         return []
@@ -182,36 +188,49 @@ async def is_subscribed(bot, query):
 
 async def build_auth_channels_markup(bot, missing_targets, retry_payload=None):
     from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    from utils import temp
     buttons = []
     for t in missing_targets:
         url = t.get("url")
         if not url and t.get("ref"):
-            try:
-                chat = await bot.get_chat(t["ref"])
-                url = chat.invite_link or (f"https://t.me/{chat.username}" if chat.username else "")
-                if not url:
-                    url = await bot.export_chat_invite_link(t["ref"])
-            except Exception:
-                url = ""
-        if not url:
+            for client_app in (bot, getattr(temp, "PRIMARY_APP", None)):
+                if not client_app or not getattr(client_app, "is_connected", False):
+                    continue
+                try:
+                    chat = await client_app.get_chat(t["ref"])
+                    url = getattr(chat, "invite_link", None) or (f"https://t.me/{chat.username}" if getattr(chat, "username", None) else "")
+                    if not url:
+                        url = await client_app.export_chat_invite_link(t["ref"])
+                    if url:
+                        break
+                except Exception:
+                    pass
+        if not url or not str(url).startswith(("http://", "https://", "tg://")):
             continue
         title = "Updates Channel"
         try:
-            if bot and t.get("ref"):
-                chat = await bot.get_chat(t["ref"])
-                title = chat.title or title
+            for client_app in (bot, getattr(temp, "PRIMARY_APP", None)):
+                if not client_app or not getattr(client_app, "is_connected", False):
+                    continue
+                try:
+                    chat = await client_app.get_chat(t["ref"])
+                    if getattr(chat, "title", None):
+                        title = chat.title
+                        break
+                except Exception:
+                    pass
         except Exception:
             pass
         buttons.append([InlineKeyboardButton(f"🤖 Join {title}", url=url)])
 
     if retry_payload and retry_payload != "subscribe":
-        try:
-            kk, file_id = retry_payload.split("_", 1)
-            pre = 'checksubp' if kk == 'filep' else 'checksub' 
-            buttons.append([InlineKeyboardButton(" 🔄 Try Again", callback_data=f"{pre}#{file_id}")])
-        except (IndexError, ValueError):
-            bot_user = getattr(temp, "U_NAME", None) or "iMoviesMagic_Bot"
-            buttons.append([InlineKeyboardButton(" 🔄 Try Again", url=f"https://t.me/{bot_user}?start={retry_payload}")])
+        clean_fid = retry_payload
+        pre = "checksub"
+        if "_" in retry_payload:
+            parts = retry_payload.split("_", 1)
+            pre = "checksubp" if parts[0] in ("filep", "filesp") else "checksub"
+            clean_fid = parts[1]
+        buttons.append([InlineKeyboardButton("🔄 Try Again", callback_data=f"{pre}#{clean_fid}")])
     else:
         buttons.append([InlineKeyboardButton("✅ Check Joined", callback_data="check_join")])
     return InlineKeyboardMarkup(buttons)
